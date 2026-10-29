@@ -154,13 +154,14 @@ def run_tests():
     wb_in = openpyxl.load_workbook(INPUT_WORKBOOK, data_only=True)
     
     # We will execute:
-    # 1. Table-level tests from sheets: 'Black Diamond Gold', 'Schwab Gold', 'Salentica Gold', 'Tamarac Gold'
+    # 1. Table-level tests from sheets: 'Black Diamond Gold', 'Schwab Gold', 'Salentica Gold', 'Tamarac Gold', 'Innotrust Gold'
     # 2. Consolidated multi-object tests from sheet: 'Consolidated SK Audit'
     sheets_to_run = [
         "Black Diamond Gold", 
         "Schwab Gold", 
         "Salentica Gold", 
         "Tamarac Gold", 
+        "Innotrust Gold",
         "Consolidated SK Audit"
     ]
 

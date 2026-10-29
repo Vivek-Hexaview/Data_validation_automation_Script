@@ -1,14 +1,15 @@
 """
 Script to generate Gold_Data_Validation_Test_Cases.xlsx
 Final Master Silver -> Gold Data Validation Test Suite:
-Covers all 4 active Gold schemas:
+Covers all 5 active Gold schemas:
 1. Coverage Summary (Executive KPI cards & table summary)
 2. All Gold Tests (Master) (All test cases consolidated)
 3. Black Diamond Gold (Table-level SCD1/2 tests)
 4. Schwab Gold (Table-level tests with exact pk_columns)
 5. Salentica Gold (Table-level tests with Point-in-Time referential keys)
 6. Tamarac Gold (Table-level tests with exact pk_columns)
-7. Consolidated SK Audit (All 4 Sources Combined Multi-Object SK Validation Queries)
+7. Innotrust Gold (Table-level tests for master, category codes, type codes, sec index & characteristics)
+8. Consolidated SK Audit (All 5 Sources Combined Multi-Object SK Validation Queries)
 """
 
 import openpyxl
@@ -377,6 +378,112 @@ def build_workbook():
                 "exp": "Zero orphan model allocation accounts. All account_number values exist in parent dimension.",
                 "query": "SELECT COUNT(*) AS OrphanModelAllocations\nFROM Gold_Warehouse.tamarac.dim_account_model_allocation ma\nLEFT JOIN Gold_Warehouse.tamarac.dim_account_information info \n    ON ma.account_number = info.account_number AND info.is_current = 'True'\nWHERE ma.is_current = 'True' \n  AND info.account_information_SK IS NULL;"
             }
+        ],
+        "Innotrust Gold": [
+            {
+                "id": "TC_INNO_GOLD_01", "cat": "SCD2 Deduplication", "pri": "Critical",
+                "table": "innotrust.dim_account_master",
+                "desc": "Verify Active Deduplication on Business Key ['customer_account_number'] (is_current = 1)",
+                "cond": "innotrust.dim_account_master populated",
+                "exp": "Zero duplicate active accounts. Exactly one is_current = 1 record per customer_account_number.",
+                "query": "SELECT customer_account_number, COUNT(*) AS ActiveDuplicateCount\nFROM Gold_Warehouse.innotrust.dim_account_master\nWHERE is_current = 1\nGROUP BY customer_account_number\nHAVING COUNT(*) > 1;"
+            },
+            {
+                "id": "TC_INNO_GOLD_02", "cat": "SK Uniqueness", "pri": "Critical",
+                "table": "innotrust.dim_account_master",
+                "desc": "Verify Primary Surrogate Key (dim_account_master_sk) uniqueness and non-null constraint",
+                "cond": "innotrust.dim_account_master populated",
+                "exp": "dim_account_master_sk is strictly unique across all versions with zero NULL values.",
+                "query": "SELECT dim_account_master_sk, COUNT(*) AS DuplicateCount\nFROM Gold_Warehouse.innotrust.dim_account_master\nGROUP BY dim_account_master_sk\nHAVING COUNT(*) > 1\nUNION ALL\nSELECT NULL, COUNT(*)\nFROM Gold_Warehouse.innotrust.dim_account_master\nWHERE dim_account_master_sk IS NULL\nHAVING COUNT(*) > 0;"
+            },
+            {
+                "id": "TC_INNO_GOLD_03", "cat": "SCD2 Deduplication", "pri": "Critical",
+                "table": "innotrust.dim_account_category_codes",
+                "desc": "Verify Active Deduplication on Business Key ['account_category_code'] (is_current = 1)",
+                "cond": "innotrust.dim_account_category_codes populated",
+                "exp": "Zero duplicate active category codes per account_category_code.",
+                "query": "SELECT account_category_code, COUNT(*) AS ActiveDuplicateCount\nFROM Gold_Warehouse.innotrust.dim_account_category_codes\nWHERE is_current = 1\nGROUP BY account_category_code\nHAVING COUNT(*) > 1;"
+            },
+            {
+                "id": "TC_INNO_GOLD_04", "cat": "SK Uniqueness", "pri": "Critical",
+                "table": "innotrust.dim_account_category_codes",
+                "desc": "Verify Primary Surrogate Key (dim_account_master_sk) uniqueness on dim_account_category_codes",
+                "cond": "innotrust.dim_account_category_codes populated",
+                "exp": "Surrogate key dim_account_master_sk is unique across all rows with zero NULLs.",
+                "query": "SELECT dim_account_master_sk, COUNT(*) AS DuplicateCount\nFROM Gold_Warehouse.innotrust.dim_account_category_codes\nGROUP BY dim_account_master_sk\nHAVING COUNT(*) > 1;"
+            },
+            {
+                "id": "TC_INNO_GOLD_05", "cat": "SCD2 Deduplication", "pri": "Critical",
+                "table": "innotrust.dim_account_type_codes",
+                "desc": "Verify Active Deduplication on Business Key ['account_type_code'] (is_current = 1)",
+                "cond": "innotrust.dim_account_type_codes populated",
+                "exp": "Zero duplicate active account types per account_type_code.",
+                "query": "SELECT account_type_code, COUNT(*) AS ActiveDuplicateCount\nFROM Gold_Warehouse.innotrust.dim_account_type_codes\nWHERE is_current = 1\nGROUP BY account_type_code\nHAVING COUNT(*) > 1;"
+            },
+            {
+                "id": "TC_INNO_GOLD_06", "cat": "SK Uniqueness", "pri": "Critical",
+                "table": "innotrust.dim_account_type_codes",
+                "desc": "Verify Primary Surrogate Key (dim_account_type_codes_sk) uniqueness and non-null constraint",
+                "cond": "innotrust.dim_account_type_codes populated",
+                "exp": "dim_account_type_codes_sk is strictly unique across all versions with zero NULLs.",
+                "query": "SELECT dim_account_type_codes_sk, COUNT(*) AS DuplicateCount\nFROM Gold_Warehouse.innotrust.dim_account_type_codes\nGROUP BY dim_account_type_codes_sk\nHAVING COUNT(*) > 1;"
+            },
+            {
+                "id": "TC_INNO_GOLD_07", "cat": "SCD2 Deduplication", "pri": "Critical",
+                "table": "innotrust.dim_master_sec_index",
+                "desc": "Verify Active Deduplication on Security Primary Key ['isin'] (is_current = 1)",
+                "cond": "innotrust.dim_master_sec_index populated",
+                "exp": "Zero duplicate active securities. Exactly one is_current = 1 record per isin.",
+                "query": "SELECT isin, COUNT(*) AS ActiveDuplicateCount\nFROM Gold_Warehouse.innotrust.dim_master_sec_index\nWHERE is_current = 1\nGROUP BY isin\nHAVING COUNT(*) > 1;"
+            },
+            {
+                "id": "TC_INNO_GOLD_08", "cat": "SK Uniqueness", "pri": "Critical",
+                "table": "innotrust.dim_master_sec_index",
+                "desc": "Verify Primary Surrogate Key (dim_master_sec_index_sk) uniqueness across all records",
+                "cond": "innotrust.dim_master_sec_index populated",
+                "exp": "dim_master_sec_index_sk is strictly unique across all versions with zero NULLs.",
+                "query": "SELECT dim_master_sec_index_sk, COUNT(*) AS DuplicateCount\nFROM Gold_Warehouse.innotrust.dim_master_sec_index\nGROUP BY dim_master_sec_index_sk\nHAVING COUNT(*) > 1;"
+            },
+            {
+                "id": "TC_INNO_GOLD_09", "cat": "SCD2 Deduplication", "pri": "Critical",
+                "table": "innotrust.dim_security_characteristics_codes",
+                "desc": "Verify Active Deduplication on Business Key ['security_type_code'] (is_current = 1)",
+                "cond": "innotrust.dim_security_characteristics_codes populated",
+                "exp": "Zero duplicate active security type codes per security_type_code.",
+                "query": "SELECT security_type_code, COUNT(*) AS ActiveDuplicateCount\nFROM Gold_Warehouse.innotrust.dim_security_characteristics_codes\nWHERE is_current = 1\nGROUP BY security_type_code\nHAVING COUNT(*) > 1;"
+            },
+            {
+                "id": "TC_INNO_GOLD_10", "cat": "SK Uniqueness", "pri": "Critical",
+                "table": "innotrust.dim_security_characteristics_codes",
+                "desc": "Verify Primary Surrogate Key (dim_securitycharacteristicscodes) uniqueness and non-null constraint",
+                "cond": "innotrust.dim_security_characteristics_codes populated",
+                "exp": "dim_securitycharacteristicscodes is strictly unique across all versions with zero NULLs.",
+                "query": "SELECT dim_securitycharacteristicscodes, COUNT(*) AS DuplicateCount\nFROM Gold_Warehouse.innotrust.dim_security_characteristics_codes\nGROUP BY dim_securitycharacteristicscodes\nHAVING COUNT(*) > 1;"
+            },
+            {
+                "id": "TC_INNO_GOLD_11", "cat": "Audit & Date Logic", "pri": "High",
+                "table": "innotrust.dim_account_master",
+                "desc": "Verify business_date, updated_at, effective_start_date & effective_end_date integrity on active records",
+                "cond": "innotrust.dim_account_master populated",
+                "exp": "Zero NULLs in business_date or updated_at; effective_end_date >= effective_start_date.",
+                "query": "SELECT \n    COUNT(*) AS TotalActiveRows,\n    SUM(CASE WHEN business_date IS NULL THEN 1 ELSE 0 END) AS Null_BusinessDate,\n    SUM(CASE WHEN updated_at IS NULL THEN 1 ELSE 0 END) AS Null_UpdatedAt,\n    SUM(CASE WHEN effective_start_date IS NULL THEN 1 ELSE 0 END) AS Null_EffectiveStartDate,\n    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) AS InvertedEffectiveDates\nFROM Gold_Warehouse.innotrust.dim_account_master\nWHERE is_current = 1;"
+            },
+            {
+                "id": "TC_INNO_GOLD_12", "cat": "Cross-Table Linkage", "pri": "High",
+                "table": "innotrust.dim_account_master",
+                "desc": "Verify Referential Integrity: account_category_code and account_type_code resolve to active codes",
+                "cond": "innotrust.dim_account_master populated",
+                "exp": "All non-null account_category_code and account_type_code exist in corresponding dimension code tables.",
+                "query": "SELECT \n    SUM(CASE WHEN m.account_category_code IS NOT NULL AND cat.account_category_code IS NULL THEN 1 ELSE 0 END) AS Orphan_CategoryCodes,\n    SUM(CASE WHEN m.account_type_code IS NOT NULL AND typ.account_type_code IS NULL THEN 1 ELSE 0 END) AS Orphan_TypeCodes\nFROM Gold_Warehouse.innotrust.dim_account_master m\nLEFT JOIN Gold_Warehouse.innotrust.dim_account_category_codes cat \n    ON m.account_category_code = cat.account_category_code AND cat.is_current = 1\nLEFT JOIN Gold_Warehouse.innotrust.dim_account_type_codes typ \n    ON m.account_type_code = typ.account_type_code AND typ.is_current = 1\nWHERE m.is_current = 1;"
+            },
+            {
+                "id": "TC_INNO_GOLD_13", "cat": "Cross-Table Linkage", "pri": "High",
+                "table": "innotrust.dim_master_sec_index",
+                "desc": "Verify Security Referential Integrity: security_type_code resolves to active security characteristics",
+                "cond": "innotrust.dim_master_sec_index populated",
+                "exp": "All non-null security_type_code values exist in dim_security_characteristics_codes.",
+                "query": "SELECT COUNT(*) AS Orphan_SecurityTypeCodes\nFROM Gold_Warehouse.innotrust.dim_master_sec_index s\nLEFT JOIN Gold_Warehouse.innotrust.dim_security_characteristics_codes sc \n    ON s.security_type_code = sc.security_type_code AND sc.is_current = 1\nWHERE s.is_current = 1 AND s.security_type_code IS NOT NULL AND sc.security_type_code IS NULL;"
+            }
         ]
     }
 
@@ -696,6 +803,68 @@ FROM Gold_Warehouse.tamarac.dim_account_model_allocation ma
 LEFT JOIN Gold_Warehouse.tamarac.dim_account_information info 
     ON ma.account_number = info.account_number AND info.is_current = 'True'
 WHERE ma.is_current = 'True';"""
+        },
+        {
+            "id": "TC_COMB_SK_INNO_05",
+            "source": "Innotrust",
+            "scope": "All 5 Innotrust Dimensions (dim_account_master, category_codes, type_codes, sec_index, characteristics)",
+            "priority": "Critical",
+            "title": "Innotrust: Consolidated Multi-Object PK Deduplication, Primary SK & Cross-Dimension Linkage",
+            "desc": "Single unified query validating SCD2 active uniqueness on exact natural keys, primary surrogate key uniqueness, and cross-dimension referential integrity between master entities and classification codes.",
+            "exp": "PK_Active_Duplicates = 0, Duplicate_Primary_SK = 0, Orphan_Foreign_References = 0, Missing_BusinessDate = 0 across all 5 Innotrust tables.",
+            "query": """SELECT 'dim_account_master' AS TableName, COUNT(*) AS TotalActiveRows,
+    (SELECT COUNT(*) FROM (SELECT customer_account_number FROM Gold_Warehouse.innotrust.dim_account_master WHERE is_current = 1 GROUP BY customer_account_number HAVING COUNT(*) > 1) d) AS PK_Active_Duplicates,
+    (COUNT(*) - COUNT(DISTINCT dim_account_master_sk)) AS Duplicate_Primary_SK,
+    SUM(CASE WHEN (m.account_category_code IS NOT NULL AND cat.account_category_code IS NULL)
+               OR (m.account_type_code IS NOT NULL AND typ.account_type_code IS NULL) THEN 1 ELSE 0 END) AS Orphan_Foreign_References,
+    SUM(CASE WHEN m.business_date IS NULL THEN 1 ELSE 0 END) AS Missing_BusinessDate,
+    SUM(CASE WHEN m.updated_at IS NULL THEN 1 ELSE 0 END) AS Missing_UpdatedAt
+FROM Gold_Warehouse.innotrust.dim_account_master m
+LEFT JOIN Gold_Warehouse.innotrust.dim_account_category_codes cat ON m.account_category_code = cat.account_category_code AND cat.is_current = 1
+LEFT JOIN Gold_Warehouse.innotrust.dim_account_type_codes typ ON m.account_type_code = typ.account_type_code AND typ.is_current = 1
+WHERE m.is_current = 1
+
+UNION ALL
+
+SELECT 'dim_account_category_codes', COUNT(*),
+    (SELECT COUNT(*) FROM (SELECT account_category_code FROM Gold_Warehouse.innotrust.dim_account_category_codes WHERE is_current = 1 GROUP BY account_category_code HAVING COUNT(*) > 1) d),
+    (COUNT(*) - COUNT(DISTINCT dim_account_master_sk)),
+    0,
+    SUM(CASE WHEN business_date IS NULL THEN 1 ELSE 0 END),
+    SUM(CASE WHEN updated_at IS NULL THEN 1 ELSE 0 END)
+FROM Gold_Warehouse.innotrust.dim_account_category_codes WHERE is_current = 1
+
+UNION ALL
+
+SELECT 'dim_account_type_codes', COUNT(*),
+    (SELECT COUNT(*) FROM (SELECT account_type_code FROM Gold_Warehouse.innotrust.dim_account_type_codes WHERE is_current = 1 GROUP BY account_type_code HAVING COUNT(*) > 1) d),
+    (COUNT(*) - COUNT(DISTINCT dim_account_type_codes_sk)),
+    0,
+    SUM(CASE WHEN business_date IS NULL THEN 1 ELSE 0 END),
+    SUM(CASE WHEN updated_at IS NULL THEN 1 ELSE 0 END)
+FROM Gold_Warehouse.innotrust.dim_account_type_codes WHERE is_current = 1
+
+UNION ALL
+
+SELECT 'dim_master_sec_index', COUNT(*),
+    (SELECT COUNT(*) FROM (SELECT isin FROM Gold_Warehouse.innotrust.dim_master_sec_index WHERE is_current = 1 GROUP BY isin HAVING COUNT(*) > 1) d),
+    (COUNT(*) - COUNT(DISTINCT dim_master_sec_index_sk)),
+    SUM(CASE WHEN s.security_type_code IS NOT NULL AND sc.security_type_code IS NULL THEN 1 ELSE 0 END),
+    SUM(CASE WHEN s.business_date IS NULL THEN 1 ELSE 0 END),
+    SUM(CASE WHEN s.updated_at IS NULL THEN 1 ELSE 0 END)
+FROM Gold_Warehouse.innotrust.dim_master_sec_index s
+LEFT JOIN Gold_Warehouse.innotrust.dim_security_characteristics_codes sc ON s.security_type_code = sc.security_type_code AND sc.is_current = 1
+WHERE s.is_current = 1
+
+UNION ALL
+
+SELECT 'dim_security_characteristics_codes', COUNT(*),
+    (SELECT COUNT(*) FROM (SELECT security_type_code FROM Gold_Warehouse.innotrust.dim_security_characteristics_codes WHERE is_current = 1 GROUP BY security_type_code HAVING COUNT(*) > 1) d),
+    (COUNT(*) - COUNT(DISTINCT dim_securitycharacteristicscodes)),
+    0,
+    SUM(CASE WHEN business_date IS NULL THEN 1 ELSE 0 END),
+    SUM(CASE WHEN updated_at IS NULL THEN 1 ELSE 0 END)
+FROM Gold_Warehouse.innotrust.dim_security_characteristics_codes WHERE is_current = 1;"""
         }
     ]
 
@@ -739,7 +908,7 @@ WHERE ma.is_current = 'True';"""
     med_count = sum(1 for c in all_master_cases if c["pri"] == "Medium")
 
     kpis = [
-        ("TOTAL SCHEMAS", 4, "A", "B"),
+        ("TOTAL SCHEMAS", 5, "A", "B"),
         ("TOTAL TEST CASES", total_tests, "C", "D"),
         ("CRITICAL PRIORITY", crit_count, "E", "E"),
         ("HIGH PRIORITY", high_count, "F", "F"),
@@ -794,7 +963,12 @@ WHERE ma.is_current = 'True';"""
          sum(1 for c in test_suites["Tamarac Gold"] if c["pri"]=="Critical") + 1,
          sum(1 for c in test_suites["Tamarac Gold"] if c["pri"]=="High"),
          "TC_COMB_SK_TAM_04",
-         "dim_account_information & dim_account_model_allocation with PK deduplication")
+         "dim_account_information & dim_account_model_allocation with PK deduplication"),
+        ("Innotrust", "innotrust", len(test_suites["Innotrust Gold"]) + 1,
+         sum(1 for c in test_suites["Innotrust Gold"] if c["pri"]=="Critical") + 1,
+         sum(1 for c in test_suites["Innotrust Gold"] if c["pri"]=="High"),
+         "TC_COMB_SK_INNO_05",
+         "All 5 dimensions: dim_account_master, category_codes, type_codes, sec_index, characteristics")
     ]
 
     for row_idx, r_data in enumerate(schema_rows, 8):
@@ -807,12 +981,12 @@ WHERE ma.is_current = 'True';"""
             c.border = THIN_BORDER
             c.alignment = ALIGN_CENTER if col_idx in [3, 4, 5, 6] else ALIGN_LEFT
 
-    tot_row = 12
+    tot_row = 13
     ws_sum.row_dimensions[tot_row].height = 26
     ws_sum.cell(tot_row, 1, "TOTAL").font = FONT_BOLD
     ws_sum.cell(tot_row, 1).fill = FILL_SECTION
     ws_sum.cell(tot_row, 1).border = THIN_BORDER
-    ws_sum.cell(tot_row, 2, "All 4 Gold Schemas").font = FONT_BOLD
+    ws_sum.cell(tot_row, 2, "All 5 Gold Schemas").font = FONT_BOLD
     ws_sum.cell(tot_row, 2).fill = FILL_SECTION
     ws_sum.cell(tot_row, 2).border = THIN_BORDER
 
@@ -831,7 +1005,7 @@ WHERE ma.is_current = 'True';"""
     ws_sum.cell(tot_row, 5).border = THIN_BORDER
     ws_sum.cell(tot_row, 5).alignment = ALIGN_CENTER
 
-    ws_sum.cell(tot_row, 6, "4 Combined Audits").font = FONT_BOLD
+    ws_sum.cell(tot_row, 6, "5 Combined Audits").font = FONT_BOLD
     ws_sum.cell(tot_row, 6).fill = FILL_SECTION
     ws_sum.cell(tot_row, 6).border = THIN_BORDER
     ws_sum.cell(tot_row, 6).alignment = ALIGN_CENTER
@@ -920,7 +1094,8 @@ WHERE ma.is_current = 'True';"""
         ("Black Diamond Gold", test_suites["Black Diamond Gold"], "BLACK DIAMOND GOLD LAYER VALIDATION SUITE"),
         ("Schwab Gold", test_suites["Schwab Gold"], "SCHWAB GOLD LAYER VALIDATION SUITE"),
         ("Salentica Gold", test_suites["Salentica Gold"], "SALENTICA CRM GOLD LAYER VALIDATION SUITE"),
-        ("Tamarac Gold", test_suites["Tamarac Gold"], "TAMARAC GOLD LAYER VALIDATION SUITE")
+        ("Tamarac Gold", test_suites["Tamarac Gold"], "TAMARAC GOLD LAYER VALIDATION SUITE"),
+        ("Innotrust Gold", test_suites["Innotrust Gold"], "INNOTRUST GOLD LAYER VALIDATION SUITE")
     ]
 
     tab_headers = [
