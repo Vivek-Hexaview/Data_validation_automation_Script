@@ -483,6 +483,27 @@ def build_workbook():
                 "cond": "innotrust.dim_master_sec_index populated",
                 "exp": "All non-null security_type_code values exist in dim_security_characteristics_codes.",
                 "query": "SELECT COUNT(*) AS Orphan_SecurityTypeCodes\nFROM Gold_Warehouse.innotrust.dim_master_sec_index s\nLEFT JOIN Gold_Warehouse.innotrust.dim_security_characteristics_codes sc \n    ON s.security_type_code = sc.security_type_code AND sc.is_current = 1\nWHERE s.is_current = 1 AND s.security_type_code IS NOT NULL AND sc.security_type_code IS NULL;"
+            },
+            {
+                "id": "TC_INNO_GOLD_14", "cat": "SCD2 Date Validation", "pri": "Critical",
+                "table": "innotrust.dim_account_master",
+                "desc": "Verify SCD2 Effective Date Rules: Inactive records effective_end_date <= (Current Day - 1), non-null end date, and valid active start date",
+                "cond": "innotrust.dim_account_master populated with SCD2 tracking columns",
+                "exp": "Inactive_End_Date_Breach_Count = 0, Inactive_Missing_End_Date = 0, Active_Future_Start_Date = 0, Inverted_Date_Range_Count = 0. TestStatus = 'PASSED'.",
+                "query": """SELECT 
+    'dim_account_master' AS TableName,
+    COUNT(*) AS TotalRecords,
+    SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) AS Inactive_End_Date_Breach_Count,
+    SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) AS Inactive_Missing_End_Date,
+    SUM(CASE WHEN is_current = 1 AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Active_Future_Start_Date,
+    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) AS Inverted_Date_Range_Count,
+    CASE 
+        WHEN SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM Gold_Warehouse.innotrust.dim_account_master;"""
             }
         ]
     }
@@ -865,6 +886,97 @@ SELECT 'dim_security_characteristics_codes', COUNT(*),
     SUM(CASE WHEN business_date IS NULL THEN 1 ELSE 0 END),
     SUM(CASE WHEN updated_at IS NULL THEN 1 ELSE 0 END)
 FROM Gold_Warehouse.innotrust.dim_security_characteristics_codes WHERE is_current = 1;"""
+        },
+        {
+            "id": "TC_COMB_SK_INNO_06",
+            "source": "Innotrust",
+            "scope": "All 5 Innotrust Dimensions (dim_account_master, category_codes, type_codes, sec_index, characteristics)",
+            "priority": "Critical",
+            "title": "Innotrust: Consolidated Multi-Object SCD2 Effective Start & End Date Audit (End Date <= Today - 1)",
+            "desc": "Validates across all 5 Innotrust dimensions that inactive records (is_current = 0) have effective_end_date <= (current day - 1), non-null end dates, active records have non-future start dates, and zero inverted date ranges.",
+            "exp": "Inactive_End_Date_Breach_Count = 0, Inactive_Missing_End_Date = 0, Active_Future_Start_Date = 0, Inverted_Date_Range_Count = 0 across all 5 tables.",
+            "query": """SELECT 
+    'dim_account_master' AS TableName,
+    COUNT(*) AS TotalRecords,
+    SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) AS Inactive_End_Date_Breach_Count,
+    SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) AS Inactive_Missing_End_Date,
+    SUM(CASE WHEN is_current = 1 AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Active_Future_Start_Date,
+    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) AS Inverted_Date_Range_Count,
+    CASE 
+        WHEN SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM Gold_Warehouse.innotrust.dim_account_master
+
+UNION ALL
+
+SELECT 
+    'dim_master_sec_index' AS TableName,
+    COUNT(*),
+    SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END),
+    SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END),
+    SUM(CASE WHEN is_current = 1 AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END),
+    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END),
+    CASE 
+        WHEN SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END
+FROM Gold_Warehouse.innotrust.dim_master_sec_index
+
+UNION ALL
+
+SELECT 
+    'dim_account_category_codes',
+    COUNT(*),
+    SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END),
+    SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END),
+    SUM(CASE WHEN is_current = 1 AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END),
+    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END),
+    CASE 
+        WHEN SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END
+FROM Gold_Warehouse.innotrust.dim_account_category_codes
+
+UNION ALL
+
+SELECT 
+    'dim_account_type_codes',
+    COUNT(*),
+    SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END),
+    SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END),
+    SUM(CASE WHEN is_current = 1 AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END),
+    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END),
+    CASE 
+        WHEN SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END
+FROM Gold_Warehouse.innotrust.dim_account_type_codes
+
+UNION ALL
+
+SELECT 
+    'dim_security_characteristics_codes',
+    COUNT(*),
+    SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END),
+    SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END),
+    SUM(CASE WHEN is_current = 1 AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END),
+    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END),
+    CASE 
+        WHEN SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END
+FROM Gold_Warehouse.innotrust.dim_security_characteristics_codes;"""
         }
     ]
 
@@ -964,11 +1076,11 @@ FROM Gold_Warehouse.innotrust.dim_security_characteristics_codes WHERE is_curren
          sum(1 for c in test_suites["Tamarac Gold"] if c["pri"]=="High"),
          "TC_COMB_SK_TAM_04",
          "dim_account_information & dim_account_model_allocation with PK deduplication"),
-        ("Innotrust", "innotrust", len(test_suites["Innotrust Gold"]) + 1,
-         sum(1 for c in test_suites["Innotrust Gold"] if c["pri"]=="Critical") + 1,
+        ("Innotrust", "innotrust", len(test_suites["Innotrust Gold"]) + 2,
+         sum(1 for c in test_suites["Innotrust Gold"] if c["pri"]=="Critical") + 2,
          sum(1 for c in test_suites["Innotrust Gold"] if c["pri"]=="High"),
-         "TC_COMB_SK_INNO_05",
-         "All 5 dimensions: dim_account_master, category_codes, type_codes, sec_index, characteristics")
+         "TC_COMB_SK_INNO_05 / 06",
+         "All 5 dimensions: PK dedup, SK uniqueness, cross-table linkage & SCD2 date rules (End Date <= Today - 1)")
     ]
 
     for row_idx, r_data in enumerate(schema_rows, 8):
