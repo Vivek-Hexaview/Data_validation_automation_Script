@@ -1,0 +1,22 @@
+# Python virtual environment & cache
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Large scratch and temporary log dumps
+scratch_cells.txt
+*.log
+*.txt
+!requirements.txt
+.system_generated/
+
+# Office temporary lock files
+~$*.xlsx
+~$*.docx
+
+# Exclude old timestamped historical runs (keep only Master template & Latest report)
+Gold_QA_Execution_Results_20*.xlsx
+Client_UAT_SQL_Execution_Results_20*.xlsx
+QA_Daily_Reconciliation_Results_20*.xlsx
