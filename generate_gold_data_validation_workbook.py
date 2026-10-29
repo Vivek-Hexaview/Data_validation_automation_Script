@@ -377,6 +377,185 @@ def build_workbook():
                 "cond": "dim_account_model_allocation populated",
                 "exp": "Zero orphan model allocation accounts. All account_number values exist in parent dimension.",
                 "query": "SELECT COUNT(*) AS OrphanModelAllocations\nFROM Gold_Warehouse.tamarac.dim_account_model_allocation ma\nLEFT JOIN Gold_Warehouse.tamarac.dim_account_information info \n    ON ma.account_number = info.account_number AND info.is_current = 'True'\nWHERE ma.is_current = 'True' \n  AND info.account_information_SK IS NULL;"
+            },
+            {
+                "id": "TC_TAM_GOLD_07", "cat": "SCD2 Date Validation", "pri": "Critical",
+                "table": "tamarac.dim_account_information",
+                "desc": "Verify Inactive End Date Rule: effective_end_date <= (MAX(file_business_date) - 1 day) and non-null",
+                "cond": "dim_account_information populated with inactive records",
+                "exp": "Exceeded_Cutoff_Count = 0, Null_End_Date_Count = 0. TestStatus = 'PASSED'.",
+                "query": """SELECT 
+    'dim_account_information' AS TableName,
+    COUNT(*) AS TotalInactiveRows,
+    CAST(m.CutoffDate AS VARCHAR(10)) AS Max_Cutoff_Allowed,
+    SUM(CASE WHEN a.effective_end_date > m.CutoffDate THEN 1 ELSE 0 END) AS Exceeded_Cutoff_Count,
+    SUM(CASE WHEN a.effective_end_date IS NULL THEN 1 ELSE 0 END) AS Null_End_Date_Count,
+    CASE 
+        WHEN SUM(CASE WHEN a.effective_end_date > m.CutoffDate THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN a.effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM Gold_Warehouse.tamarac.dim_account_information a
+CROSS JOIN (SELECT DATEADD(day, -1, MAX(file_business_date)) AS CutoffDate FROM Gold_Warehouse.tamarac.dim_account_information) m
+WHERE a.is_current = 'False'
+GROUP BY m.CutoffDate;"""
+            },
+            {
+                "id": "TC_TAM_GOLD_08", "cat": "SCD2 Date Validation", "pri": "Critical",
+                "table": "tamarac.dim_account_model_allocation",
+                "desc": "Verify Inactive End Date Rule: effective_end_date <= (MAX(file_business_date) - 1 day) and non-null",
+                "cond": "dim_account_model_allocation populated with inactive records",
+                "exp": "Exceeded_Cutoff_Count = 0, Null_End_Date_Count = 0. TestStatus = 'PASSED'.",
+                "query": """SELECT 
+    'dim_account_model_allocation' AS TableName,
+    COUNT(*) AS TotalInactiveRows,
+    CAST(m.CutoffDate AS VARCHAR(10)) AS Max_Cutoff_Allowed,
+    SUM(CASE WHEN a.effective_end_date > m.CutoffDate THEN 1 ELSE 0 END) AS Exceeded_Cutoff_Count,
+    SUM(CASE WHEN a.effective_end_date IS NULL THEN 1 ELSE 0 END) AS Null_End_Date_Count,
+    CASE 
+        WHEN SUM(CASE WHEN a.effective_end_date > m.CutoffDate THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN a.effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM Gold_Warehouse.tamarac.dim_account_model_allocation a
+CROSS JOIN (SELECT DATEADD(day, -1, MAX(file_business_date)) AS CutoffDate FROM Gold_Warehouse.tamarac.dim_account_model_allocation) m
+WHERE a.is_current = 'False'
+GROUP BY m.CutoffDate;"""
+            },
+            {
+                "id": "TC_TAM_GOLD_09", "cat": "SCD2 Timeline & SK Monotonicity", "pri": "Critical",
+                "table": "tamarac.dim_account_information",
+                "desc": "Verify SCD2 Timeline Continuity (Zero Gaps, Zero Overlaps) & SK Monotonic Increment",
+                "cond": "dim_account_information with multiple versions per account_number",
+                "exp": "Timeline_Gap_Or_Overlap_Count = 0, SK_Non_Incrementing_Violation_Count = 0. TestStatus = 'PASSED'.",
+                "query": """;WITH InfoTimeline AS (
+    SELECT 
+        account_number,
+        account_information_SK,
+        effective_start_date,
+        effective_end_date,
+        is_current,
+        LEAD(effective_start_date) OVER (PARTITION BY account_number ORDER BY effective_start_date, account_information_SK) AS next_start_date,
+        LEAD(account_information_SK) OVER (PARTITION BY account_number ORDER BY effective_start_date, account_information_SK) AS next_sk
+    FROM Gold_Warehouse.tamarac.dim_account_information
+)
+SELECT 
+    'dim_account_information' AS TableName,
+    COUNT(*) AS MultiVersionRecordsChecked,
+    SUM(CASE WHEN next_start_date IS NOT NULL AND effective_end_date <> DATEADD(day, -1, next_start_date) THEN 1 ELSE 0 END) AS Timeline_Gap_Or_Overlap_Count,
+    SUM(CASE WHEN next_sk IS NOT NULL AND next_sk <= account_information_SK THEN 1 ELSE 0 END) AS SK_Non_Incrementing_Violation_Count,
+    CASE 
+        WHEN SUM(CASE WHEN next_start_date IS NOT NULL AND effective_end_date <> DATEADD(day, -1, next_start_date) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN next_sk IS NOT NULL AND next_sk <= account_information_SK THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM InfoTimeline
+WHERE next_start_date IS NOT NULL;"""
+            },
+            {
+                "id": "TC_TAM_GOLD_10", "cat": "SCD2 Timeline & SK Monotonicity", "pri": "Critical",
+                "table": "tamarac.dim_account_model_allocation",
+                "desc": "Verify SCD2 Timeline Continuity (Zero Gaps, Zero Overlaps) & SK Monotonic Increment",
+                "cond": "dim_account_model_allocation with multiple versions per composite key",
+                "exp": "Timeline_Gap_Or_Overlap_Count = 0, SK_Non_Incrementing_Violation_Count = 0. TestStatus = 'PASSED'.",
+                "query": """;WITH ModelTimeline AS (
+    SELECT 
+        account_number,
+        model_name,
+        account_model_SK,
+        effective_start_date,
+        effective_end_date,
+        is_current,
+        LEAD(effective_start_date) OVER (PARTITION BY account_number, model_name ORDER BY effective_start_date, account_model_SK) AS next_start_date,
+        LEAD(account_model_SK) OVER (PARTITION BY account_number, model_name ORDER BY effective_start_date, account_model_SK) AS next_sk
+    FROM Gold_Warehouse.tamarac.dim_account_model_allocation
+)
+SELECT 
+    'dim_account_model_allocation' AS TableName,
+    COUNT(*) AS MultiVersionRecordsChecked,
+    SUM(CASE WHEN next_start_date IS NOT NULL AND effective_end_date <> DATEADD(day, -1, next_start_date) THEN 1 ELSE 0 END) AS Timeline_Gap_Or_Overlap_Count,
+    SUM(CASE WHEN next_sk IS NOT NULL AND next_sk <= account_model_SK THEN 1 ELSE 0 END) AS SK_Non_Incrementing_Violation_Count,
+    CASE 
+        WHEN SUM(CASE WHEN next_start_date IS NOT NULL AND effective_end_date <> DATEADD(day, -1, next_start_date) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN next_sk IS NOT NULL AND next_sk <= account_model_SK THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM ModelTimeline
+WHERE next_start_date IS NOT NULL;"""
+            },
+            {
+                "id": "TC_TAM_GOLD_11", "cat": "Date Sanity & Inversions", "pri": "Critical",
+                "table": "tamarac.dim_account_information",
+                "desc": "Verify Date Sanity: Zero inverted dates (start > end) and active records have non-future start dates",
+                "cond": "dim_account_information populated",
+                "exp": "Inverted_Date_Count = 0, Future_Active_Start_Date = 0, Null_Start_Date_Count = 0. TestStatus = 'PASSED'.",
+                "query": """SELECT 
+    'dim_account_information' AS TableName,
+    COUNT(*) AS TotalRecords,
+    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) AS Inverted_Date_Count,
+    SUM(CASE WHEN is_current = 'True' AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Future_Active_Start_Date,
+    SUM(CASE WHEN effective_start_date IS NULL THEN 1 ELSE 0 END) AS Null_Start_Date_Count,
+    CASE 
+        WHEN SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN is_current = 'True' AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN effective_start_date IS NULL THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM Gold_Warehouse.tamarac.dim_account_information;"""
+            },
+            {
+                "id": "TC_TAM_GOLD_12", "cat": "Date Sanity & Inversions", "pri": "Critical",
+                "table": "tamarac.dim_account_model_allocation",
+                "desc": "Verify Date Sanity: Zero inverted dates (start > end) and active records have non-future start dates",
+                "cond": "dim_account_model_allocation populated",
+                "exp": "Inverted_Date_Count = 0, Future_Active_Start_Date = 0, Null_Start_Date_Count = 0. TestStatus = 'PASSED'.",
+                "query": """SELECT 
+    'dim_account_model_allocation' AS TableName,
+    COUNT(*) AS TotalRecords,
+    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) AS Inverted_Date_Count,
+    SUM(CASE WHEN is_current = 'True' AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Future_Active_Start_Date,
+    SUM(CASE WHEN effective_start_date IS NULL THEN 1 ELSE 0 END) AS Null_Start_Date_Count,
+    CASE 
+        WHEN SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN is_current = 'True' AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN effective_start_date IS NULL THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM Gold_Warehouse.tamarac.dim_account_model_allocation;"""
+            },
+            {
+                "id": "TC_TAM_GOLD_13", "cat": "Open-Ended Active Records", "pri": "High",
+                "table": "tamarac.dim_account_information",
+                "desc": "Verify Active Records are Open-Ended (effective_end_date is NULL or '9999-12-31')",
+                "cond": "dim_account_information where is_current = 'True'",
+                "exp": "Prematurely_Ended_Active_Records = 0. TestStatus = 'PASSED'.",
+                "query": """SELECT 
+    'dim_account_information' AS TableName,
+    COUNT(*) AS TotalActiveRecords,
+    SUM(CASE WHEN effective_end_date IS NOT NULL AND effective_end_date NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END) AS Prematurely_Ended_Active_Records,
+    CASE 
+        WHEN SUM(CASE WHEN effective_end_date IS NOT NULL AND effective_end_date NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END) = 0 
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM Gold_Warehouse.tamarac.dim_account_information
+WHERE is_current = 'True';"""
+            },
+            {
+                "id": "TC_TAM_GOLD_14", "cat": "Open-Ended Active Records", "pri": "High",
+                "table": "tamarac.dim_account_model_allocation",
+                "desc": "Verify Active Records are Open-Ended (effective_end_date is NULL or '9999-12-31')",
+                "cond": "dim_account_model_allocation where is_current = 'True'",
+                "exp": "Prematurely_Ended_Active_Records = 0. TestStatus = 'PASSED'.",
+                "query": """SELECT 
+    'dim_account_model_allocation' AS TableName,
+    COUNT(*) AS TotalActiveRecords,
+    SUM(CASE WHEN effective_end_date IS NOT NULL AND effective_end_date NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END) AS Prematurely_Ended_Active_Records,
+    CASE 
+        WHEN SUM(CASE WHEN effective_end_date IS NOT NULL AND effective_end_date NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END) = 0 
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM Gold_Warehouse.tamarac.dim_account_model_allocation
+WHERE is_current = 'True';"""
             }
         ],
         "Innotrust Gold": [
