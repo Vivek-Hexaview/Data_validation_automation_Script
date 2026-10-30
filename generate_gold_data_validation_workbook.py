@@ -267,6 +267,235 @@ def build_workbook():
                 "cond": "fact_uln_lot_daily_non_taxable populated",
                 "exp": "Zero duplicate rows on (account_id, event_id); account_sk strictly maps to dim_accounts.",
                 "query": "SELECT \n    (SELECT COUNT(*) FROM (SELECT account_id, event_id FROM Gold_Warehouse.schwab.fact_uln_lot_daily_non_taxable GROUP BY account_id, event_id HAVING COUNT(*) > 1) d) AS Duplicate_BusinessKey_Count,\n    SUM(CASE WHEN f.account_sk IS NOT NULL AND da.account_sk IS NOT NULL AND f.account_id <> da.account_id THEN 1 ELSE 0 END) AS Mismatched_AccountId_Count,\n    SUM(CASE WHEN f.account_sk IS NULL THEN 1 ELSE 0 END) AS Null_AccountSK_Count,\n    SUM(CASE WHEN f.account_sk IS NOT NULL AND da.account_sk IS NULL THEN 1 ELSE 0 END) AS Orphan_AccountSK_Count\nFROM Gold_Warehouse.schwab.fact_uln_lot_daily_non_taxable f\nLEFT JOIN Gold_Warehouse.schwab.dim_accounts da ON f.account_sk = da.account_sk;"
+            },
+            {
+                "id": "TC_SC_GOLD_09", "cat": "SCD2 Inactive Date Rules", "pri": "Critical",
+                "table": "schwab.dim_accounts",
+                "desc": "Verify SCD2 Inactive Date Rule: Inactive records (IsCurrent = 0) must have EffectiveTo <= file_business_date - 1 (or next EffectiveFrom - 1)",
+                "cond": "dim_accounts populated with SCD2 tracking columns",
+                "exp": "Zero active records marked expired prematurely, zero inactive records with open/invalid EffectiveTo. DefectCount = 0.",
+                "query": """SELECT 
+    account_id,
+    account_sk,
+    file_business_date,
+    EffectiveFrom,
+    EffectiveTo,
+    IsCurrent,
+    Audit_Update_Date
+FROM Gold_Warehouse.schwab.dim_accounts
+WHERE IsCurrent = 0 
+  AND (EffectiveTo IS NULL OR EffectiveTo > file_business_date)
+ORDER BY account_id, EffectiveFrom;"""
+            },
+            {
+                "id": "TC_SC_GOLD_10", "cat": "Date Sanity & Inversions", "pri": "Critical",
+                "table": "schwab.dim_accounts",
+                "desc": "Verify Date Sanity: Zero inverted dates (EffectiveTo < EffectiveFrom) and active records have non-future start dates",
+                "cond": "dim_accounts populated",
+                "exp": "Inverted_Date_Count = 0, Future_Active_Start_Date = 0, Null_Start_Date_Count = 0. TestStatus = 'PASSED'.",
+                "query": """SELECT 
+    'schwab.dim_accounts' AS TableName,
+    COUNT(*) AS TotalRecords,
+    SUM(CASE WHEN EffectiveTo < EffectiveFrom THEN 1 ELSE 0 END) AS Inverted_Date_Count,
+    SUM(CASE WHEN IsCurrent = 1 AND EffectiveFrom > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Future_Active_Start_Date,
+    SUM(CASE WHEN EffectiveFrom IS NULL THEN 1 ELSE 0 END) AS Null_Start_Date_Count,
+    CASE 
+        WHEN SUM(CASE WHEN EffectiveTo < EffectiveFrom THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN IsCurrent = 1 AND EffectiveFrom > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN EffectiveFrom IS NULL THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM Gold_Warehouse.schwab.dim_accounts;"""
+            },
+            {
+                "id": "TC_SC_GOLD_11", "cat": "Open-Ended Active Records", "pri": "High",
+                "table": "schwab.dim_accounts",
+                "desc": "Verify Active Records are Open-Ended (EffectiveTo is NULL or '9999-12-31')",
+                "cond": "dim_accounts where IsCurrent = 1",
+                "exp": "Prematurely_Ended_Active_Records = 0. TestStatus = 'PASSED'.",
+                "query": """SELECT 
+    'schwab.dim_accounts' AS TableName,
+    COUNT(*) AS TotalActiveRecords,
+    SUM(CASE WHEN EffectiveTo IS NOT NULL AND EffectiveTo NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END) AS Prematurely_Ended_Active_Records,
+    CASE 
+        WHEN SUM(CASE WHEN EffectiveTo IS NOT NULL AND EffectiveTo NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END) = 0 
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM Gold_Warehouse.schwab.dim_accounts
+WHERE IsCurrent = 1;"""
+            },
+            {
+                "id": "TC_SC_GOLD_12", "cat": "Version Evolution Audit", "pri": "Critical",
+                "table": "schwab.dim_accounts",
+                "desc": "Verify SCD2 Version Evolution: Monotonic SK increments, advancing EffectiveFrom, continuous timeline (EffectiveTo = next EffectiveFrom - 1), and latest version active",
+                "cond": "dim_accounts with multiple version rows per account_id",
+                "exp": "Reused_Or_NonIncrementing_SK_Count = 0, NonAdvancing_EffectiveFrom_Count = 0, Timeline_Gap_Or_Overlap_Count = 0, LatestVersion_Not_Active_Count = 0. TestStatus = 'PASSED'.",
+                "query": """WITH SchwabEvolution AS (
+    SELECT 
+        account_id,
+        account_sk,
+        EffectiveFrom,
+        EffectiveTo,
+        IsCurrent,
+        file_business_date,
+        Audit_Update_Date,
+        LEAD(account_sk) OVER (PARTITION BY account_id ORDER BY EffectiveFrom, account_sk) AS next_sk,
+        LEAD(EffectiveFrom) OVER (PARTITION BY account_id ORDER BY EffectiveFrom, account_sk) AS next_start_date,
+        ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY EffectiveFrom DESC, account_sk DESC) AS rn_latest
+    FROM Gold_Warehouse.schwab.dim_accounts
+)
+SELECT 
+    'schwab.dim_accounts' AS TableName,
+    'Version Evolution & Progression' AS TestName,
+    COUNT(*) AS TotalVersionsAudited,
+    SUM(CASE WHEN next_sk IS NOT NULL AND next_sk <= account_sk THEN 1 ELSE 0 END) AS Reused_Or_NonIncrementing_SK_Count,
+    SUM(CASE WHEN next_start_date IS NOT NULL AND next_start_date <= EffectiveFrom THEN 1 ELSE 0 END) AS NonAdvancing_EffectiveFrom_Count,
+    SUM(CASE WHEN next_start_date IS NOT NULL AND EffectiveTo <> DATEADD(day, -1, next_start_date) THEN 1 ELSE 0 END) AS Timeline_Gap_Or_Overlap_Count,
+    SUM(CASE WHEN rn_latest = 1 AND IsCurrent <> 1 THEN 1 ELSE 0 END) AS LatestVersion_Not_Active_Count,
+    CASE 
+        WHEN SUM(CASE WHEN next_sk IS NOT NULL AND next_sk <= account_sk THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN next_start_date IS NOT NULL AND next_start_date <= EffectiveFrom THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN next_start_date IS NOT NULL AND EffectiveTo <> DATEADD(day, -1, next_start_date) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN rn_latest = 1 AND IsCurrent <> 1 THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM SchwabEvolution;"""
+            },
+            {
+                "id": "TC_SC_GOLD_13", "cat": "Fact Health & Historical Retention", "pri": "Critical",
+                "table": "schwab.fact_recon_position_d1, fact_recon_position_d2, fact_daily_closing_lots, fact_transactions, fact_ult_lot_daily_taxable, fact_uln_lot_daily_non_taxable",
+                "desc": "Verify Fact Tables Health: Active SK mapping for fresh runs, historical closed version preservation for unrepeated rows, exact natural account match, and orphan SK detection",
+                "cond": "All 6 Schwab Fact tables loaded into Gold Warehouse",
+                "exp": "Fresh records map to active SK (IsCurrent = 1), past records retain historical SK, Exact_Account_Match_Count covers all non-orphan rows, Defect_Orphan_Unmapped_SK = 0, Defect_Wrong_Account_Mismatch = 0. OverallStatus = 'PASSED'.",
+                "query": """WITH MaxRuns AS (
+    SELECT 'fact_recon_position_d1' AS TableName, MAX(updated_at) AS LatestRunTimestamp FROM Gold_Warehouse.schwab.fact_recon_position_d1 UNION ALL
+    SELECT 'fact_recon_position_d2', MAX(updated_at) FROM Gold_Warehouse.schwab.fact_recon_position_d2 UNION ALL
+    SELECT 'fact_daily_closing_lots', MAX(updated_at) FROM Gold_Warehouse.schwab.fact_daily_closing_lots UNION ALL
+    SELECT 'fact_transactions', MAX(updated_at) FROM Gold_Warehouse.schwab.fact_transactions UNION ALL
+    SELECT 'fact_ult_lot_daily_taxable', MAX(updated_at) FROM Gold_Warehouse.schwab.fact_ult_lot_daily_taxable UNION ALL
+    SELECT 'fact_uln_lot_daily_non_taxable', MAX(updated_at) FROM Gold_Warehouse.schwab.fact_uln_lot_daily_non_taxable
+),
+FactBreakdown AS (
+    SELECT 
+        'fact_recon_position_d1' AS TableName,
+        COUNT(*) AS TotalFactRows,
+        MAX(f.file_business_date) AS LatestBatchDate,
+        SUM(CASE WHEN f.updated_at = m.LatestRunTimestamp AND da.IsCurrent = 1 AND f.account_id = da.account_id THEN 1 ELSE 0 END) AS Fresh_Run_Active_Mapped,
+        SUM(CASE WHEN f.updated_at < m.LatestRunTimestamp AND da.IsCurrent = 1 AND f.account_id = da.account_id THEN 1 ELSE 0 END) AS Past_Run_Active_Retained,
+        SUM(CASE WHEN f.updated_at < m.LatestRunTimestamp AND da.IsCurrent = 0 AND f.account_id = da.account_id THEN 1 ELSE 0 END) AS Past_Run_Expired_Version_Retained,
+        SUM(CASE WHEN da.account_sk IS NOT NULL AND f.account_id = da.account_id THEN 1 ELSE 0 END) AS Exact_Account_Match_Count,
+        SUM(CASE WHEN f.account_sk = -1 OR da.account_sk IS NULL THEN 1 ELSE 0 END) AS Defect_Orphan_Unmapped_SK,
+        SUM(CASE WHEN da.account_sk IS NOT NULL AND f.account_id <> da.account_id THEN 1 ELSE 0 END) AS Defect_Wrong_Account_Mismatch
+    FROM Gold_Warehouse.schwab.fact_recon_position_d1 f
+    JOIN MaxRuns m ON m.TableName = 'fact_recon_position_d1'
+    LEFT JOIN Gold_Warehouse.schwab.dim_accounts da ON f.account_sk = da.account_sk
+    GROUP BY m.LatestRunTimestamp
+
+    UNION ALL
+
+    SELECT 
+        'fact_recon_position_d2',
+        COUNT(*),
+        MAX(f.file_business_date),
+        SUM(CASE WHEN f.updated_at = m.LatestRunTimestamp AND da.IsCurrent = 1 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updated_at < m.LatestRunTimestamp AND da.IsCurrent = 1 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updated_at < m.LatestRunTimestamp AND da.IsCurrent = 0 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_sk IS NOT NULL AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.account_sk = -1 OR da.account_sk IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_sk IS NOT NULL AND f.account_id <> da.account_id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.schwab.fact_recon_position_d2 f
+    JOIN MaxRuns m ON m.TableName = 'fact_recon_position_d2'
+    LEFT JOIN Gold_Warehouse.schwab.dim_accounts da ON f.account_sk = da.account_sk
+    GROUP BY m.LatestRunTimestamp
+
+    UNION ALL
+
+    SELECT 
+        'fact_daily_closing_lots',
+        COUNT(*),
+        MAX(f.file_business_date),
+        SUM(CASE WHEN f.updated_at = m.LatestRunTimestamp AND da.IsCurrent = 1 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updated_at < m.LatestRunTimestamp AND da.IsCurrent = 1 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updated_at < m.LatestRunTimestamp AND da.IsCurrent = 0 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_sk IS NOT NULL AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.account_sk = -1 OR da.account_sk IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_sk IS NOT NULL AND f.account_id <> da.account_id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.schwab.fact_daily_closing_lots f
+    JOIN MaxRuns m ON m.TableName = 'fact_daily_closing_lots'
+    LEFT JOIN Gold_Warehouse.schwab.dim_accounts da ON f.account_sk = da.account_sk
+    GROUP BY m.LatestRunTimestamp
+
+    UNION ALL
+
+    SELECT 
+        'fact_transactions',
+        COUNT(*),
+        MAX(f.file_business_date),
+        SUM(CASE WHEN f.updated_at = m.LatestRunTimestamp AND da.IsCurrent = 1 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updated_at < m.LatestRunTimestamp AND da.IsCurrent = 1 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updated_at < m.LatestRunTimestamp AND da.IsCurrent = 0 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_sk IS NOT NULL AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.account_sk = -1 OR da.account_sk IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_sk IS NOT NULL AND f.account_id <> da.account_id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.schwab.fact_transactions f
+    JOIN MaxRuns m ON m.TableName = 'fact_transactions'
+    LEFT JOIN Gold_Warehouse.schwab.dim_accounts da ON f.account_sk = da.account_sk
+    GROUP BY m.LatestRunTimestamp
+
+    UNION ALL
+
+    SELECT 
+        'fact_ult_lot_daily_taxable',
+        COUNT(*),
+        MAX(f.file_business_date),
+        SUM(CASE WHEN f.updated_at = m.LatestRunTimestamp AND da.IsCurrent = 1 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updated_at < m.LatestRunTimestamp AND da.IsCurrent = 1 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updated_at < m.LatestRunTimestamp AND da.IsCurrent = 0 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_sk IS NOT NULL AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.account_sk = -1 OR da.account_sk IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_sk IS NOT NULL AND f.account_id <> da.account_id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.schwab.fact_ult_lot_daily_taxable f
+    JOIN MaxRuns m ON m.TableName = 'fact_ult_lot_daily_taxable'
+    LEFT JOIN Gold_Warehouse.schwab.dim_accounts da ON f.account_sk = da.account_sk
+    GROUP BY m.LatestRunTimestamp
+
+    UNION ALL
+
+    SELECT 
+        'fact_uln_lot_daily_non_taxable',
+        COUNT(*),
+        MAX(f.file_business_date),
+        SUM(CASE WHEN f.updated_at = m.LatestRunTimestamp AND da.IsCurrent = 1 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updated_at < m.LatestRunTimestamp AND da.IsCurrent = 1 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updated_at < m.LatestRunTimestamp AND da.IsCurrent = 0 AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_sk IS NOT NULL AND f.account_id = da.account_id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.account_sk = -1 OR da.account_sk IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_sk IS NOT NULL AND f.account_id <> da.account_id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.schwab.fact_uln_lot_daily_non_taxable f
+    JOIN MaxRuns m ON m.TableName = 'fact_uln_lot_daily_non_taxable'
+    LEFT JOIN Gold_Warehouse.schwab.dim_accounts da ON f.account_sk = da.account_sk
+    GROUP BY m.LatestRunTimestamp
+)
+SELECT 
+    TableName,
+    TotalFactRows,
+    LatestBatchDate,
+    Fresh_Run_Active_Mapped,
+    Past_Run_Active_Retained,
+    Past_Run_Expired_Version_Retained AS Historical_Closed_Version_Retained,
+    Exact_Account_Match_Count,
+    Defect_Orphan_Unmapped_SK,
+    Defect_Wrong_Account_Mismatch,
+    CASE 
+        WHEN Defect_Orphan_Unmapped_SK = 0 AND Defect_Wrong_Account_Mismatch = 0 THEN 'PASSED'
+        ELSE 'FAILED'
+    END AS OverallStatus,
+    CASE 
+        WHEN Defect_Orphan_Unmapped_SK > 0 THEN CONCAT(Defect_Orphan_Unmapped_SK, ' Orphan Record(s) (SK = -1)')
+        WHEN Defect_Wrong_Account_Mismatch > 0 THEN 'Account Mismatch Defect'
+        ELSE 'All Active & Historical Records Correctly Preserved'
+    END AS Remarks
+FROM FactBreakdown;"""
             }
         ],
 
