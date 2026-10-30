@@ -271,21 +271,36 @@ def build_workbook():
             {
                 "id": "TC_SC_GOLD_09", "cat": "SCD2 Inactive Date Rules", "pri": "Critical",
                 "table": "schwab.dim_accounts",
-                "desc": "Verify SCD2 Inactive Date Rule: Inactive records (IsCurrent = 0) must have EffectiveTo <= file_business_date - 1 (or next EffectiveFrom - 1)",
+                "desc": "Verify SCD2 Timeline & Date Rules: Inactive records (IsCurrent = 0) must have EffectiveTo <= Latest_Batch_Date - 1, Active records must be open-ended, zero inverted dates",
                 "cond": "dim_accounts populated with SCD2 tracking columns",
-                "exp": "Zero active records marked expired prematurely, zero inactive records with open/invalid EffectiveTo. DefectCount = 0.",
-                "query": """SELECT 
-    account_id,
-    account_sk,
-    file_business_date,
-    EffectiveFrom,
-    EffectiveTo,
-    IsCurrent,
-    Audit_Update_Date
+                "exp": "Defect_Inactive_EndDate_Not_Preceding_Batch = 0, Defect_Active_Prematurely_Closed = 0, Defect_Inverted_Dates = 0. TestStatus = 'PASSED'.",
+                "query": """;WITH LatestBatch AS (
+    SELECT MAX(file_business_date) AS LatestBatchDate FROM Gold_Warehouse.schwab.dim_accounts
+)
+SELECT 
+    'schwab.dim_accounts' AS TableName,
+    COUNT(*) AS TotalRecords,
+    b.LatestBatchDate,
+    SUM(CASE WHEN IsCurrent = 1 THEN 1 ELSE 0 END) AS Active_Records_Count,
+    SUM(CASE WHEN IsCurrent = 0 THEN 1 ELSE 0 END) AS Inactive_Records_Count,
+    -- Rule: Inactive records must have EffectiveTo <= LatestBatchDate - 1
+    SUM(CASE WHEN IsCurrent = 0 AND (EffectiveTo IS NULL OR EffectiveTo > DATEADD(day, -1, b.LatestBatchDate)) THEN 1 ELSE 0 END) AS Defect_Inactive_EndDate_Not_Preceding_Batch,
+    -- Rule: Active records must be open-ended (NULL or 9999-12-31)
+    SUM(CASE WHEN IsCurrent = 1 AND EffectiveTo IS NOT NULL AND EffectiveTo NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END) AS Defect_Active_Prematurely_Closed,
+    -- Rule: Start date cannot be after End date
+    SUM(CASE WHEN EffectiveTo < EffectiveFrom THEN 1 ELSE 0 END) AS Defect_Inverted_Dates,
+    -- Rule: Active Start date cannot be in future
+    SUM(CASE WHEN IsCurrent = 1 AND EffectiveFrom > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Defect_Future_Active_Start_Date,
+    CASE 
+        WHEN SUM(CASE WHEN IsCurrent = 0 AND (EffectiveTo IS NULL OR EffectiveTo > DATEADD(day, -1, b.LatestBatchDate)) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN IsCurrent = 1 AND EffectiveTo IS NOT NULL AND EffectiveTo NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN EffectiveTo < EffectiveFrom THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN IsCurrent = 1 AND EffectiveFrom > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
 FROM Gold_Warehouse.schwab.dim_accounts
-WHERE IsCurrent = 0 
-  AND (EffectiveTo IS NULL OR EffectiveTo > file_business_date)
-ORDER BY account_id, EffectiveFrom;"""
+CROSS JOIN LatestBatch b
+GROUP BY b.LatestBatchDate;"""
             },
             {
                 "id": "TC_SC_GOLD_10", "cat": "Date Sanity & Inversions", "pri": "Critical",
