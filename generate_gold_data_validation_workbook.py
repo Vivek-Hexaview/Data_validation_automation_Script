@@ -201,6 +201,328 @@ def build_workbook():
                 "cond": "fact_accounts_taxlots populated",
                 "exp": "Zero duplicate records on (accountid, taxlotid, holdingid); account_sk strictly matches dim_accounts (tl.accountid == da.id).",
                 "query": "SELECT \n    (SELECT COUNT(*) FROM (SELECT accountid, taxlotid, holdingid FROM Gold_Warehouse.black_diamond.fact_accounts_taxlots GROUP BY accountid, taxlotid, holdingid HAVING COUNT(*) > 1) d) AS Duplicate_BusinessKey_Count,\n    SUM(CASE WHEN tl.accountid <> da.id THEN 1 ELSE 0 END) AS Mismatched_AccountId_Count,\n    SUM(CASE WHEN tl.account_sk IS NULL THEN 1 ELSE 0 END) AS Null_AccountSK_Count\nFROM Gold_Warehouse.black_diamond.fact_accounts_taxlots tl\nLEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON tl.account_sk = da.accounts_SK;"
+            },
+            {
+                "id": "TC_BD_GOLD_19", "cat": "SCD2 Inactive Date Rules", "pri": "Critical",
+                "table": "black_diamond.dim_accounts (and ALL 13 Dim Tables)",
+                "desc": "Verify SCD2 Timeline & Date Rules across ALL 13 Dim Tables: Inactive records (iscurrent = 'False') must have effectiveenddate <= Latest_Batch_Date - 1, Active records must be open-ended, zero inverted dates",
+                "cond": "All 13 Black Diamond dimension tables loaded with SCD2 tracking columns",
+                "exp": "Defect_Inactive_EndDate_Not_DayMinus1 = 0, Defect_Active_Prematurely_Closed = 0, Defect_Inverted_Dates = 0, Defect_Future_Active_StartDate = 0 across all 13 tables. TestStatus = 'PASSED'.",
+                "query": """;WITH DimSCD2Audit AS (
+    SELECT 'dim_accounts' AS TableName, COUNT(*) AS TotalRecords, MAX(file_business_date) AS LatestBatchDate,
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END) AS Active_Count,
+        SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END) AS Inactive_Count,
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END) AS Defect_Inactive_EndDate_Not_DayMinus1,
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END) AS Defect_Active_Prematurely_Closed,
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END) AS Defect_Inverted_Dates,
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Defect_Future_Active_StartDate
+    FROM Gold_Warehouse.black_diamond.dim_accounts
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_accounts) b
+    GROUP BY b.MaxBatchDate
+
+    UNION ALL
+    SELECT 'dim_asset', COUNT(*), MAX(file_business_date),
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END), SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_asset
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_asset) b GROUP BY b.MaxBatchDate
+
+    UNION ALL
+    SELECT 'dim_client', COUNT(*), MAX(file_business_date),
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END), SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_client
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_client) b GROUP BY b.MaxBatchDate
+
+    UNION ALL
+    SELECT 'dim_contact', COUNT(*), MAX(file_business_date),
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END), SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_contact
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_contact) b GROUP BY b.MaxBatchDate
+
+    UNION ALL
+    SELECT 'dim_portfoliogroup', COUNT(*), MAX(file_business_date),
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END), SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_portfoliogroup
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_portfoliogroup) b GROUP BY b.MaxBatchDate
+
+    UNION ALL
+    SELECT 'dim_relationshipv2', COUNT(*), MAX(file_business_date),
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END), SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_relationshipv2
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_relationshipv2) b GROUP BY b.MaxBatchDate
+
+    UNION ALL
+    SELECT 'dim_target', COUNT(*), MAX(file_business_date),
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END), SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_target
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_target) b GROUP BY b.MaxBatchDate
+
+    UNION ALL
+    SELECT 'dim_accounts_classallocation', COUNT(*), MAX(file_business_date),
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END), SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_accounts_classallocation
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_accounts_classallocation) b GROUP BY b.MaxBatchDate
+
+    UNION ALL
+    SELECT 'dim_accounts_details', COUNT(*), MAX(file_business_date),
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END), SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_accounts_details
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_accounts_details) b GROUP BY b.MaxBatchDate
+
+    UNION ALL
+    SELECT 'dim_accounts_segmentallocation', COUNT(*), MAX(file_business_date),
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END), SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_accounts_segmentallocation
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_accounts_segmentallocation) b GROUP BY b.MaxBatchDate
+
+    UNION ALL
+    SELECT 'dim_accounts_tags', COUNT(*), MAX(file_business_date),
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END), SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_accounts_tags
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_accounts_tags) b GROUP BY b.MaxBatchDate
+
+    UNION ALL
+    SELECT 'dim_accounts_targets', COUNT(*), MAX(file_business_date),
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END), SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_accounts_targets
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_accounts_targets) b GROUP BY b.MaxBatchDate
+
+    UNION ALL
+    SELECT 'dim_accounts_team', COUNT(*), MAX(file_business_date),
+        SUM(CASE WHEN iscurrent = 'True' THEN 1 ELSE 0 END), SUM(CASE WHEN iscurrent = 'False' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'False' AND (effectiveenddate IS NULL OR effectiveenddate > DATEADD(day, -1, b.MaxBatchDate)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectiveenddate IS NOT NULL AND effectiveenddate NOT IN ('9999-12-31', '2099-12-31') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN effectiveenddate < effectivestartdate THEN 1 ELSE 0 END),
+        SUM(CASE WHEN iscurrent = 'True' AND effectivestartdate > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_accounts_team
+    CROSS JOIN (SELECT MAX(file_business_date) AS MaxBatchDate FROM Gold_Warehouse.black_diamond.dim_accounts_team) b GROUP BY b.MaxBatchDate
+)
+SELECT 
+    TableName, TotalRecords, LatestBatchDate, Active_Count, Inactive_Count,
+    Defect_Inactive_EndDate_Not_DayMinus1, Defect_Active_Prematurely_Closed, Defect_Inverted_Dates, Defect_Future_Active_StartDate,
+    CASE 
+        WHEN Defect_Inactive_EndDate_Not_DayMinus1 = 0 AND Defect_Active_Prematurely_Closed = 0 AND Defect_Inverted_Dates = 0 AND Defect_Future_Active_StartDate = 0 THEN 'PASSED'
+        ELSE 'FAILED'
+    END AS TestStatus
+FROM DimSCD2Audit;"""
+            },
+            {
+                "id": "TC_BD_GOLD_20", "cat": "Version Evolution Audit", "pri": "Critical",
+                "table": "black_diamond.dim_accounts",
+                "desc": "Verify SCD2 Version Evolution: Monotonic accounts_SK increments, advancing effectivestartdate, continuous timeline (effectiveenddate = next effectivestartdate - 1), and latest version active",
+                "cond": "dim_accounts with multiple version rows per id",
+                "exp": "Reused_Or_NonIncrementing_SK_Count = 0, NonAdvancing_EffectiveStartDate_Count = 0, Timeline_Gap_Or_Overlap_Count = 0, LatestVersion_Not_Active_Count = 0. TestStatus = 'PASSED'.",
+                "query": """;WITH VersionChains AS (
+    SELECT 
+        id, accounts_SK, effectivestartdate, effectiveenddate, iscurrent, file_business_date, updatedat,
+        LEAD(accounts_SK) OVER (PARTITION BY id ORDER BY effectivestartdate, accounts_SK) AS next_sk,
+        LEAD(effectivestartdate) OVER (PARTITION BY id ORDER BY effectivestartdate, accounts_SK) AS next_start_date,
+        ROW_NUMBER() OVER (PARTITION BY id ORDER BY effectivestartdate DESC, accounts_SK DESC) AS rn_latest
+    FROM Gold_Warehouse.black_diamond.dim_accounts
+)
+SELECT 
+    'black_diamond.dim_accounts' AS TableName,
+    'Version Evolution & Progression' AS TestName,
+    COUNT(*) AS TotalVersionsAudited,
+    SUM(CASE WHEN next_sk IS NOT NULL AND next_sk <= accounts_SK THEN 1 ELSE 0 END) AS Reused_Or_NonIncrementing_SK_Count,
+    SUM(CASE WHEN next_start_date IS NOT NULL AND next_start_date <= effectivestartdate THEN 1 ELSE 0 END) AS NonAdvancing_EffectiveStartDate_Count,
+    SUM(CASE WHEN next_start_date IS NOT NULL AND effectiveenddate <> DATEADD(day, -1, next_start_date) THEN 1 ELSE 0 END) AS Timeline_Gap_Or_Overlap_Count,
+    SUM(CASE WHEN rn_latest = 1 AND iscurrent <> 'True' THEN 1 ELSE 0 END) AS LatestVersion_Not_Active_Count,
+    CASE 
+        WHEN SUM(CASE WHEN next_sk IS NOT NULL AND next_sk <= accounts_SK THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN next_start_date IS NOT NULL AND next_start_date <= effectivestartdate THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN next_start_date IS NOT NULL AND effectiveenddate <> DATEADD(day, -1, next_start_date) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN rn_latest = 1 AND iscurrent <> 'True' THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM VersionChains;"""
+            },
+            {
+                "id": "TC_BD_GOLD_21", "cat": "Foreign SK Referential Mapping", "pri": "Critical",
+                "table": "black_diamond (ALL 6 Child Dims + 3 Fact Tables)",
+                "desc": "Verify Consolidated account_sk Mapping: Audits that all 6 Child Dimensions and 3 Fact Tables have their attached account_sk strictly mapped to the exact matching id in dim_accounts",
+                "cond": "dim_accounts_classallocation, details, segmentallocation, tags, targets, team, holdings, transactions, taxlots populated",
+                "exp": "Defect_Orphan_Unmapped_SK = 0 and Defect_Wrong_Account_Mismatch = 0 across all 9 tables. Exact_Account_Match_Count covers 100% of rows. TestStatus = 'PASSED'.",
+                "query": """;WITH AccountSKAudit AS (
+    SELECT 'dim_accounts_classallocation' AS TableName, 'Child Dimension' AS ObjectType, COUNT(*) AS TotalRecords,
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND c.accountid = da.id THEN 1 ELSE 0 END) AS Exact_Account_Match_Count,
+        SUM(CASE WHEN c.account_sk = -1 OR c.account_sk IS NULL OR da.accounts_SK IS NULL THEN 1 ELSE 0 END) AS Defect_Orphan_Unmapped_SK,
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND c.accountid <> da.id THEN 1 ELSE 0 END) AS Defect_Wrong_Account_Mismatch
+    FROM Gold_Warehouse.black_diamond.dim_accounts_classallocation c
+    LEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON c.account_sk = da.accounts_SK
+
+    UNION ALL
+    SELECT 'dim_accounts_details', 'Child Dimension', COUNT(*),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND d.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN d.account_sk = -1 OR d.account_sk IS NULL OR da.accounts_SK IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND d.accountid <> da.id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_accounts_details d
+    LEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON d.account_sk = da.accounts_SK
+
+    UNION ALL
+    SELECT 'dim_accounts_segmentallocation', 'Child Dimension', COUNT(*),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND s.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN s.account_sk = -1 OR s.account_sk IS NULL OR da.accounts_SK IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND s.accountid <> da.id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_accounts_segmentallocation s
+    LEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON s.account_sk = da.accounts_SK
+
+    UNION ALL
+    SELECT 'dim_accounts_tags', 'Child Dimension', COUNT(*),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND t.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN t.account_sk = -1 OR t.account_sk IS NULL OR da.accounts_SK IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND t.accountid <> da.id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_accounts_tags t
+    LEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON t.account_sk = da.accounts_SK
+
+    UNION ALL
+    SELECT 'dim_accounts_targets', 'Child Dimension', COUNT(*),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND tg.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN tg.account_sk = -1 OR tg.account_sk IS NULL OR da.accounts_SK IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND tg.accountid <> da.id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_accounts_targets tg
+    LEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON tg.account_sk = da.accounts_SK
+
+    UNION ALL
+    SELECT 'dim_accounts_team', 'Child Dimension', COUNT(*),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND tm.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN tm.account_sk = -1 OR tm.account_sk IS NULL OR da.accounts_SK IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND tm.accountid <> da.id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.dim_accounts_team tm
+    LEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON tm.account_sk = da.accounts_SK
+
+    UNION ALL
+    SELECT 'fact_accounts_holdings', 'Fact Table', COUNT(*),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND h.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN h.account_sk = -1 OR h.account_sk IS NULL OR da.accounts_SK IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND h.accountid <> da.id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.fact_accounts_holdings h
+    LEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON h.account_sk = da.accounts_SK
+
+    UNION ALL
+    SELECT 'fact_accounts_transactions', 'Fact Table', COUNT(*),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND tx.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN tx.account_sk = -1 OR tx.account_sk IS NULL OR da.accounts_SK IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND tx.accountid <> da.id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.fact_accounts_transactions tx
+    LEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON tx.account_sk = da.accounts_SK
+
+    UNION ALL
+    SELECT 'fact_accounts_taxlots', 'Fact Table', COUNT(*),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND tl.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN tl.account_sk = -1 OR tl.account_sk IS NULL OR da.accounts_SK IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND tl.accountid <> da.id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.fact_accounts_taxlots tl
+    LEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON tl.account_sk = da.accounts_SK
+)
+SELECT TableName, ObjectType, TotalRecords, Exact_Account_Match_Count, Defect_Orphan_Unmapped_SK, Defect_Wrong_Account_Mismatch,
+    CASE WHEN Defect_Orphan_Unmapped_SK = 0 AND Defect_Wrong_Account_Mismatch = 0 THEN 'PASSED' ELSE 'FAILED' END AS TestStatus
+FROM AccountSKAudit;"""
+            },
+            {
+                "id": "TC_BD_GOLD_22", "cat": "Fact Health & Historical Retention", "pri": "Critical",
+                "table": "black_diamond.fact_accounts_holdings, fact_accounts_transactions, fact_accounts_taxlots",
+                "desc": "Verify Fact Tables Health: Active SK mapping for fresh runs, historical closed version preservation for unrepeated rows, exact natural account match, and orphan SK detection",
+                "cond": "All 3 Black Diamond Fact tables loaded into Gold Warehouse",
+                "exp": "Fresh records map to active SK (iscurrent = 'True'), past records retain historical SK, Exact_Account_Match_Count covers all non-orphan rows, Defect_Orphan_Unmapped_SK = 0, Defect_Wrong_Account_Mismatch = 0. OverallStatus = 'PASSED'.",
+                "query": """;WITH MaxRuns AS (
+    SELECT 'fact_accounts_holdings' AS TableName, MAX(updatedat) AS LatestRunTimestamp FROM Gold_Warehouse.black_diamond.fact_accounts_holdings UNION ALL
+    SELECT 'fact_accounts_transactions', MAX(updatedat) FROM Gold_Warehouse.black_diamond.fact_accounts_transactions UNION ALL
+    SELECT 'fact_accounts_taxlots', MAX(updatedat) FROM Gold_Warehouse.black_diamond.fact_accounts_taxlots
+),
+FactBreakdown AS (
+    SELECT 'fact_accounts_holdings' AS TableName, COUNT(*) AS TotalFactRows, MAX(f.file_business_date) AS LatestBatchDate,
+        SUM(CASE WHEN f.updatedat = m.LatestRunTimestamp AND da.iscurrent = 'True' AND f.accountid = da.id THEN 1 ELSE 0 END) AS Fresh_Run_Active_Mapped,
+        SUM(CASE WHEN f.updatedat < m.LatestRunTimestamp AND da.iscurrent = 'True' AND f.accountid = da.id THEN 1 ELSE 0 END) AS Past_Run_Active_Retained,
+        SUM(CASE WHEN f.updatedat < m.LatestRunTimestamp AND da.iscurrent = 'False' AND f.accountid = da.id THEN 1 ELSE 0 END) AS Past_Run_Expired_Version_Retained,
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND f.accountid = da.id THEN 1 ELSE 0 END) AS Exact_Account_Match_Count,
+        SUM(CASE WHEN f.account_sk = -1 OR da.accounts_SK IS NULL THEN 1 ELSE 0 END) AS Defect_Orphan_Unmapped_SK,
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND f.accountid <> da.id THEN 1 ELSE 0 END) AS Defect_Wrong_Account_Mismatch
+    FROM Gold_Warehouse.black_diamond.fact_accounts_holdings f
+    JOIN MaxRuns m ON m.TableName = 'fact_accounts_holdings'
+    LEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON f.account_sk = da.accounts_SK
+    GROUP BY m.LatestRunTimestamp
+
+    UNION ALL
+    SELECT 'fact_accounts_transactions', COUNT(*), MAX(f.file_business_date),
+        SUM(CASE WHEN f.updatedat = m.LatestRunTimestamp AND da.iscurrent = 'True' AND f.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updatedat < m.LatestRunTimestamp AND da.iscurrent = 'True' AND f.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updatedat < m.LatestRunTimestamp AND da.iscurrent = 'False' AND f.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND f.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.account_sk = -1 OR da.accounts_SK IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND f.accountid <> da.id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.fact_accounts_transactions f
+    JOIN MaxRuns m ON m.TableName = 'fact_accounts_transactions'
+    LEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON f.account_sk = da.accounts_SK
+    GROUP BY m.LatestRunTimestamp
+
+    UNION ALL
+    SELECT 'fact_accounts_taxlots', COUNT(*), MAX(f.file_business_date),
+        SUM(CASE WHEN f.updatedat = m.LatestRunTimestamp AND da.iscurrent = 'True' AND f.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updatedat < m.LatestRunTimestamp AND da.iscurrent = 'True' AND f.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.updatedat < m.LatestRunTimestamp AND da.iscurrent = 'False' AND f.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND f.accountid = da.id THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.account_sk = -1 OR da.accounts_SK IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.accounts_SK IS NOT NULL AND f.accountid <> da.id THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.black_diamond.fact_accounts_taxlots f
+    JOIN MaxRuns m ON m.TableName = 'fact_accounts_taxlots'
+    LEFT JOIN Gold_Warehouse.black_diamond.dim_accounts da ON f.account_sk = da.accounts_SK
+    GROUP BY m.LatestRunTimestamp
+)
+SELECT 
+    TableName, TotalFactRows, LatestBatchDate, Fresh_Run_Active_Mapped, Past_Run_Active_Retained,
+    Past_Run_Expired_Version_Retained AS Historical_Closed_Version_Retained, Exact_Account_Match_Count,
+    Defect_Orphan_Unmapped_SK, Defect_Wrong_Account_Mismatch,
+    CASE WHEN Defect_Orphan_Unmapped_SK = 0 AND Defect_Wrong_Account_Mismatch = 0 THEN 'PASSED' ELSE 'FAILED' END AS OverallStatus,
+    CASE 
+        WHEN Defect_Orphan_Unmapped_SK > 0 THEN CONCAT(Defect_Orphan_Unmapped_SK, ' Orphan Record(s) (SK = -1)')
+        WHEN Defect_Wrong_Account_Mismatch > 0 THEN 'Account Mismatch Defect'
+        ELSE 'All Active & Historical Records Correctly Preserved'
+    END AS Remarks
+FROM FactBreakdown;"""
             }
         ],
         "Schwab Gold": [
