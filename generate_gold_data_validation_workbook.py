@@ -556,6 +556,79 @@ WHERE is_current = 'True';"""
     END AS TestStatus
 FROM Gold_Warehouse.tamarac.dim_account_model_allocation
 WHERE is_current = 'True';"""
+            },
+            {
+                "id": "TC_TAM_GOLD_15", "cat": "Version Evolution Audit", "pri": "Critical",
+                "table": "tamarac.dim_account_information",
+                "desc": "Verify Run Evolution: Every new run produces New Incremented SK, Advancing Start Date, and Latest Version is Active",
+                "cond": "dim_account_information with historical batch progression",
+                "exp": "Reused_Or_NonIncrementing_SK_Count = 0, NonAdvancing_EffectiveStartDate_Count = 0, Timeline_Gap_Or_Overlap_Count = 0, LatestVersion_Not_Active_Count = 0. TestStatus = 'PASSED'.",
+                "query": """;WITH VersionChains AS (
+    SELECT 
+        account_number,
+        account_information_SK,
+        effective_start_date,
+        effective_end_date,
+        is_current,
+        file_business_date,
+        updated_at,
+        LEAD(account_information_SK) OVER (PARTITION BY account_number ORDER BY effective_start_date, account_information_SK) AS next_sk,
+        LEAD(effective_start_date) OVER (PARTITION BY account_number ORDER BY effective_start_date, account_information_SK) AS next_start_date,
+        ROW_NUMBER() OVER (PARTITION BY account_number ORDER BY effective_start_date DESC, account_information_SK DESC) AS rn_latest
+    FROM Gold_Warehouse.tamarac.dim_account_information
+)
+SELECT 
+    'dim_account_information' AS TableName,
+    COUNT(*) AS TotalVersionsAudited,
+    SUM(CASE WHEN next_sk IS NOT NULL AND next_sk <= account_information_SK THEN 1 ELSE 0 END) AS Reused_Or_NonIncrementing_SK_Count,
+    SUM(CASE WHEN next_start_date IS NOT NULL AND next_start_date <= effective_start_date THEN 1 ELSE 0 END) AS NonAdvancing_EffectiveStartDate_Count,
+    SUM(CASE WHEN next_start_date IS NOT NULL AND effective_end_date <> DATEADD(day, -1, next_start_date) THEN 1 ELSE 0 END) AS Timeline_Gap_Or_Overlap_Count,
+    SUM(CASE WHEN rn_latest = 1 AND is_current <> 'True' THEN 1 ELSE 0 END) AS LatestVersion_Not_Active_Count,
+    CASE 
+        WHEN SUM(CASE WHEN next_sk IS NOT NULL AND next_sk <= account_information_SK THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN next_start_date IS NOT NULL AND next_start_date <= effective_start_date THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN next_start_date IS NOT NULL AND effective_end_date <> DATEADD(day, -1, next_start_date) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN rn_latest = 1 AND is_current <> 'True' THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM VersionChains;"""
+            },
+            {
+                "id": "TC_TAM_GOLD_16", "cat": "Version Evolution Audit", "pri": "Critical",
+                "table": "tamarac.dim_account_model_allocation",
+                "desc": "Verify Run Evolution: Every new run produces New Incremented SK, Advancing Start Date, and Latest Version is Active",
+                "cond": "dim_account_model_allocation with historical batch progression",
+                "exp": "Reused_Or_NonIncrementing_SK_Count = 0, NonAdvancing_EffectiveStartDate_Count = 0, Timeline_Gap_Or_Overlap_Count = 0, LatestVersion_Not_Active_Count = 0. TestStatus = 'PASSED'.",
+                "query": """;WITH ModelChains AS (
+    SELECT 
+        account_number,
+        model_name,
+        account_model_SK,
+        effective_start_date,
+        effective_end_date,
+        is_current,
+        file_business_date,
+        updated_at,
+        LEAD(account_model_SK) OVER (PARTITION BY account_number, model_name ORDER BY effective_start_date, account_model_SK) AS next_sk,
+        LEAD(effective_start_date) OVER (PARTITION BY account_number, model_name ORDER BY effective_start_date, account_model_SK) AS next_start_date,
+        ROW_NUMBER() OVER (PARTITION BY account_number, model_name ORDER BY effective_start_date DESC, account_model_SK DESC) AS rn_latest
+    FROM Gold_Warehouse.tamarac.dim_account_model_allocation
+)
+SELECT 
+    'dim_account_model_allocation' AS TableName,
+    COUNT(*) AS TotalVersionsAudited,
+    SUM(CASE WHEN next_sk IS NOT NULL AND next_sk <= account_model_SK THEN 1 ELSE 0 END) AS Reused_Or_NonIncrementing_SK_Count,
+    SUM(CASE WHEN next_start_date IS NOT NULL AND next_start_date <= effective_start_date THEN 1 ELSE 0 END) AS NonAdvancing_EffectiveStartDate_Count,
+    SUM(CASE WHEN next_start_date IS NOT NULL AND effective_end_date <> DATEADD(day, -1, next_start_date) THEN 1 ELSE 0 END) AS Timeline_Gap_Or_Overlap_Count,
+    SUM(CASE WHEN rn_latest = 1 AND is_current <> 'True' THEN 1 ELSE 0 END) AS LatestVersion_Not_Active_Count,
+    CASE 
+        WHEN SUM(CASE WHEN next_sk IS NOT NULL AND next_sk <= account_model_SK THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN next_start_date IS NOT NULL AND next_start_date <= effective_start_date THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN next_start_date IS NOT NULL AND effective_end_date <> DATEADD(day, -1, next_start_date) THEN 1 ELSE 0 END) = 0
+         AND SUM(CASE WHEN rn_latest = 1 AND is_current <> 'True' THEN 1 ELSE 0 END) = 0
+        THEN 'PASSED' ELSE 'FAILED'
+    END AS TestStatus
+FROM ModelChains;"""
             }
         ],
         "Innotrust Gold": [
