@@ -27,7 +27,7 @@ from openpyxl.utils import get_column_letter
 BASE_DIR = r"c:\Users\Vivek.singh\OneDrive - Hexaview Technologies\Desktop\CR"
 MASTER_WORKBOOK = os.path.join(BASE_DIR, "Test_Cases_All_Stored_Procedures.xlsx")
 
-SERVER = "ajgmg63gfu5uvbdmkc5o4riuke-vbqrzfwozwwe3dpgtyetnhqqc4.datawarehouse.fabric.microsoft.com"
+SERVER = "ajgmg63gfu5uvbdmkc5o4riuke-tnixybw3f7kejjy4dnqgavvt64.datawarehouse.fabric.microsoft.com"
 DATABASE = "Gold_Warehouse"
 
 CONN_STR = (

@@ -11,7 +11,7 @@ Description:
     Gold_QA_Execution_Results_Latest.xlsx (and timestamped report).
 
 Fabric SQL Endpoint:
-    ajgmg63gfu5uvbdmkc5o4riuke-jh64r26oniguza6yz33xhqqsmy.datawarehouse.fabric.microsoft.com
+    ajgmg63gfu5uvbdmkc5o4riuke-tnixybw3f7kejjy4dnqgavvt64.datawarehouse.fabric.microsoft.com
 ========================================================================================
 """
 
@@ -31,7 +31,7 @@ BASE_DIR = r"c:\Users\Vivek.singh\OneDrive - Hexaview Technologies\Desktop\CR"
 INPUT_WORKBOOK = os.path.join(BASE_DIR, "Gold_Data_Validation_Test_Cases.xlsx")
 
 # Your specified Fabric Endpoint
-SERVER = "ajgmg63gfu5uvbdmkc5o4riuke-jh64r26oniguza6yz33xhqqsmy.datawarehouse.fabric.microsoft.com"
+SERVER = "ajgmg63gfu5uvbdmkc5o4riuke-tnixybw3f7kejjy4dnqgavvt64.datawarehouse.fabric.microsoft.com"
 DATABASE = "Gold_Warehouse"
 
 CONN_STR = (

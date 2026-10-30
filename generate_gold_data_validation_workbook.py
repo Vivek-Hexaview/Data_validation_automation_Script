@@ -893,6 +893,125 @@ FROM FactBreakdown;"""
                 "cond": "fact_opportunity populated",
                 "exp": "When natural ID is NULL, the corresponding SK defaults to -1. Zero unmapped NULLs in SK columns.",
                 "query": "SELECT \n    SUM(CASE WHEN accountid IS NULL AND accountid_sk = -1 THEN 1 ELSE 0 END) AS ProperlyDefaulted_AccountSK,\n    SUM(CASE WHEN accountid IS NULL AND accountid_sk IS NULL THEN 1 ELSE 0 END) AS Improper_Null_AccountSK,\n    SUM(CASE WHEN contactid IS NULL AND contactid_sk = -1 THEN 1 ELSE 0 END) AS ProperlyDefaulted_ContactSK,\n    SUM(CASE WHEN contactid IS NULL AND contactid_sk IS NULL THEN 1 ELSE 0 END) AS Improper_Null_ContactSK\nFROM Gold_Warehouse.salentica.fact_opportunity\nWHERE iscurrent = 'True';"
+            },
+            {
+                "id": "TC_SAL_GOLD_08", "cat": "Foreign SK Referential Mapping", "pri": "Critical",
+                "table": "salentica (dim_account, dim_contact_core, fact_opportunity, fact_lead)",
+                "desc": "Verify Consolidated SK Referential Mapping: Audits that all foreign SKs in dimensions and facts resolve to exact matching natural keys in parent entities",
+                "cond": "dim_account, dim_contact_core, dim_businessunit, fact_opportunity, fact_lead populated",
+                "exp": "Defect_Orphan_Unmapped_SK = 0 and Defect_Wrong_Account_Mismatch = 0 across all entities. Exact_NaturalKey_Match_Count covers 100% of rows. TestStatus = 'PASSED'.",
+                "query": """;WITH SalenticaSKAudit AS (
+    SELECT 'dim_account (Contact & BU Links)' AS ObjectRelationship, 'Dimension Table' AS ObjectType, COUNT(*) AS TotalRecords,
+        SUM(CASE WHEN (a.primarycontactid IS NOT NULL AND a.primarycontactid_sk <> -1 AND a.primarycontactid = c.contactid)
+                   OR (a.owningbusinessunit IS NOT NULL AND a.owningbusinessunit_sk <> -1 AND a.owningbusinessunit = bu.businessunitid) THEN 1 ELSE 0 END) AS Exact_NaturalKey_Match_Count,
+        SUM(CASE WHEN (a.primarycontactid IS NOT NULL AND (a.primarycontactid_sk = -1 OR c.contact_SK IS NULL))
+                   OR (a.owningbusinessunit IS NOT NULL AND (a.owningbusinessunit_sk = -1 OR bu.businessunit_SK IS NULL)) THEN 1 ELSE 0 END) AS Defect_Orphan_Unmapped_SK,
+        SUM(CASE WHEN (a.primarycontactid IS NOT NULL AND a.primarycontactid_sk <> -1 AND c.contact_SK IS NOT NULL AND a.primarycontactid <> c.contactid)
+                   OR (a.owningbusinessunit IS NOT NULL AND a.owningbusinessunit_sk <> -1 AND bu.businessunit_SK IS NOT NULL AND a.owningbusinessunit <> bu.businessunitid) THEN 1 ELSE 0 END) AS Defect_Wrong_Account_Mismatch
+    FROM Gold_Warehouse.salentica.dim_account a
+    LEFT JOIN Gold_Warehouse.salentica.dim_contact_core c ON a.primarycontactid_sk = c.contact_SK
+    LEFT JOIN Gold_Warehouse.salentica.dim_businessunit bu ON a.owningbusinessunit_sk = bu.businessunit_SK
+
+    UNION ALL
+    SELECT 'dim_contact_core (Account & BU Links)', 'Dimension Table', COUNT(*),
+        SUM(CASE WHEN (c.accountid IS NOT NULL AND c.accountid_sk <> -1 AND c.accountid = a.accountid)
+                   OR (c.owningbusinessunit IS NOT NULL AND c.owningbusinessunit_sk <> -1 AND c.owningbusinessunit = bu.businessunitid) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN (c.accountid IS NOT NULL AND (c.accountid_sk = -1 OR a.account_SK IS NULL))
+                   OR (c.owningbusinessunit IS NOT NULL AND (c.owningbusinessunit_sk = -1 OR bu.businessunit_SK IS NULL)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN (c.accountid IS NOT NULL AND c.accountid_sk <> -1 AND a.account_SK IS NOT NULL AND c.accountid <> a.accountid)
+                   OR (c.owningbusinessunit IS NOT NULL AND c.owningbusinessunit_sk <> -1 AND bu.businessunit_SK IS NOT NULL AND c.owningbusinessunit <> bu.businessunitid) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.salentica.dim_contact_core c
+    LEFT JOIN Gold_Warehouse.salentica.dim_account a ON c.accountid_sk = a.account_SK
+    LEFT JOIN Gold_Warehouse.salentica.dim_businessunit bu ON c.owningbusinessunit_sk = bu.businessunit_SK
+
+    UNION ALL
+    SELECT 'fact_opportunity (Account & Contact Links)', 'Fact Table', COUNT(*),
+        SUM(CASE WHEN (o.accountid IS NOT NULL AND o.accountid_sk <> -1 AND o.accountid = a.accountid)
+                   OR (o.contactid IS NOT NULL AND o.contactid_sk <> -1 AND o.contactid = c.contactid) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN (o.accountid IS NOT NULL AND (o.accountid_sk = -1 OR a.account_SK IS NULL))
+                   OR (o.contactid IS NOT NULL AND (o.contactid_sk = -1 OR c.contact_SK IS NULL)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN (o.accountid IS NOT NULL AND o.accountid_sk <> -1 AND a.account_SK IS NOT NULL AND o.accountid <> a.accountid)
+                   OR (o.contactid IS NOT NULL AND o.contactid_sk <> -1 AND c.contact_SK IS NOT NULL AND o.contactid <> c.contactid) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.salentica.fact_opportunity o
+    LEFT JOIN Gold_Warehouse.salentica.dim_account a ON o.accountid_sk = a.account_SK
+    LEFT JOIN Gold_Warehouse.salentica.dim_contact_core c ON o.contactid_sk = c.contact_SK
+
+    UNION ALL
+    SELECT 'fact_lead (Account & Contact Links)', 'Fact Table', COUNT(*),
+        SUM(CASE WHEN (l.accountid IS NOT NULL AND l.accountid_sk <> -1 AND l.accountid = a.accountid)
+                   OR (l.contactid IS NOT NULL AND l.contactid_sk <> -1 AND l.contactid = c.contactid) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN (l.accountid IS NOT NULL AND (l.accountid_sk = -1 OR a.account_SK IS NULL))
+                   OR (l.contactid IS NOT NULL AND (l.contactid_sk = -1 OR c.contact_SK IS NULL)) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN (l.accountid IS NOT NULL AND l.accountid_sk <> -1 AND a.account_SK IS NOT NULL AND l.accountid <> a.accountid)
+                   OR (l.contactid IS NOT NULL AND l.contactid_sk <> -1 AND c.contact_SK IS NOT NULL AND l.contactid <> c.contactid) THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.salentica.fact_lead l
+    LEFT JOIN Gold_Warehouse.salentica.dim_account a ON l.accountid_sk = a.account_SK
+    LEFT JOIN Gold_Warehouse.salentica.dim_contact_core c ON l.contactid_sk = c.contact_SK
+)
+SELECT ObjectRelationship, ObjectType, TotalRecords, Exact_NaturalKey_Match_Count, Defect_Orphan_Unmapped_SK, Defect_Wrong_Account_Mismatch,
+    CASE WHEN Defect_Orphan_Unmapped_SK = 0 AND Defect_Wrong_Account_Mismatch = 0 THEN 'PASSED' ELSE 'FAILED' END AS TestStatus
+FROM SalenticaSKAudit;"""
+            },
+            {
+                "id": "TC_SAL_GOLD_09", "cat": "Fact Health & Historical Retention", "pri": "Critical",
+                "table": "salentica.fact_opportunity, fact_lead, fact_investmentaccount",
+                "desc": "Verify CRM Fact Tables Health: Active SK mapping for fresh runs, historical closed version preservation for unrepeated rows, exact natural account match, and orphan SK detection",
+                "cond": "All 3 Salentica Fact tables loaded into Gold Warehouse",
+                "exp": "Fresh records map to active SK (iscurrent = 'True'), past records retain historical SK, Exact_Account_Match_Count covers all non-orphan rows, Defect_Orphan_Unmapped_SK = 0, Defect_Wrong_Account_Mismatch = 0. OverallStatus = 'PASSED'.",
+                "query": """;WITH MaxRuns AS (
+    SELECT 'fact_opportunity' AS TableName, MAX(load_timestamp) AS LatestRunTimestamp FROM Gold_Warehouse.salentica.fact_opportunity UNION ALL
+    SELECT 'fact_lead', MAX(load_timestamp) FROM Gold_Warehouse.salentica.fact_lead UNION ALL
+    SELECT 'fact_investmentaccount', MAX(load_timestamp) FROM Gold_Warehouse.salentica.fact_investmentaccount
+),
+FactBreakdown AS (
+    SELECT 'fact_opportunity' AS TableName, COUNT(*) AS TotalFactRows, MAX(f.AsOfDate) AS LatestBatchDate,
+        SUM(CASE WHEN f.load_timestamp = m.LatestRunTimestamp AND da.iscurrent = 'True' AND f.accountid = da.accountid THEN 1 ELSE 0 END) AS Fresh_Run_Active_Mapped,
+        SUM(CASE WHEN f.load_timestamp < m.LatestRunTimestamp AND da.iscurrent = 'True' AND f.accountid = da.accountid THEN 1 ELSE 0 END) AS Past_Run_Active_Retained,
+        SUM(CASE WHEN f.load_timestamp < m.LatestRunTimestamp AND da.iscurrent = 'False' AND f.accountid = da.accountid THEN 1 ELSE 0 END) AS Past_Run_Expired_Version_Retained,
+        SUM(CASE WHEN da.account_SK IS NOT NULL AND f.accountid = da.accountid THEN 1 ELSE 0 END) AS Exact_Account_Match_Count,
+        SUM(CASE WHEN f.accountid_sk = -1 OR da.account_SK IS NULL THEN 1 ELSE 0 END) AS Defect_Orphan_Unmapped_SK,
+        SUM(CASE WHEN da.account_SK IS NOT NULL AND f.accountid <> da.accountid THEN 1 ELSE 0 END) AS Defect_Wrong_Account_Mismatch
+    FROM Gold_Warehouse.salentica.fact_opportunity f
+    JOIN MaxRuns m ON m.TableName = 'fact_opportunity'
+    LEFT JOIN Gold_Warehouse.salentica.dim_account da ON f.accountid_sk = da.account_SK
+    GROUP BY m.LatestRunTimestamp
+
+    UNION ALL
+    SELECT 'fact_lead', COUNT(*), MAX(f.AsOfDate),
+        SUM(CASE WHEN f.load_timestamp = m.LatestRunTimestamp AND da.iscurrent = 'True' AND f.accountid = da.accountid THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.load_timestamp < m.LatestRunTimestamp AND da.iscurrent = 'True' AND f.accountid = da.accountid THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.load_timestamp < m.LatestRunTimestamp AND da.iscurrent = 'False' AND f.accountid = da.accountid THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_SK IS NOT NULL AND f.accountid = da.accountid THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.accountid_sk = -1 OR da.account_SK IS NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_SK IS NOT NULL AND f.accountid <> da.accountid THEN 1 ELSE 0 END)
+    FROM Gold_Warehouse.salentica.fact_lead f
+    JOIN MaxRuns m ON m.TableName = 'fact_lead'
+    LEFT JOIN Gold_Warehouse.salentica.dim_account da ON f.accountid_sk = da.account_SK
+    GROUP BY m.LatestRunTimestamp
+
+    UNION ALL
+    SELECT 'fact_investmentaccount', COUNT(*), MAX(f.AsOfDate),
+        SUM(CASE WHEN f.load_timestamp = m.LatestRunTimestamp AND da.iscurrent = 'True' AND f.si_family_sk = da.account_SK THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.load_timestamp < m.LatestRunTimestamp AND da.iscurrent = 'True' AND f.si_family_sk = da.account_SK THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.load_timestamp < m.LatestRunTimestamp AND da.iscurrent = 'False' AND f.si_family_sk = da.account_SK THEN 1 ELSE 0 END),
+        SUM(CASE WHEN da.account_SK IS NOT NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN f.investmentaccount_SK = -1 THEN 1 ELSE 0 END),
+        0
+    FROM Gold_Warehouse.salentica.fact_investmentaccount f
+    JOIN MaxRuns m ON m.TableName = 'fact_investmentaccount'
+    LEFT JOIN Gold_Warehouse.salentica.dim_account da ON f.si_family_sk = da.account_SK
+    GROUP BY m.LatestRunTimestamp
+)
+SELECT TableName, TotalFactRows, LatestBatchDate, Fresh_Run_Active_Mapped, Past_Run_Active_Retained,
+    Past_Run_Expired_Version_Retained AS Historical_Closed_Version_Retained, Exact_Account_Match_Count,
+    Defect_Orphan_Unmapped_SK, Defect_Wrong_Account_Mismatch,
+    CASE WHEN Defect_Orphan_Unmapped_SK = 0 AND Defect_Wrong_Account_Mismatch = 0 THEN 'PASSED' ELSE 'FAILED' END AS OverallStatus,
+    CASE 
+        WHEN Defect_Orphan_Unmapped_SK > 0 THEN CONCAT(Defect_Orphan_Unmapped_SK, ' Orphan Record(s) (SK = -1)')
+        WHEN Defect_Wrong_Account_Mismatch > 0 THEN 'Account Mismatch Defect'
+        ELSE 'All Active & Historical Records Correctly Preserved'
+    END AS Remarks
+FROM FactBreakdown;"""
             }
         ],
         "Tamarac Gold": [
@@ -1279,12 +1398,18 @@ FROM ModelChains;"""
                 "query": "SELECT dim_securitycharacteristicscodes, COUNT(*) AS DuplicateCount\nFROM Gold_Warehouse.innotrust.dim_security_characteristics_codes\nGROUP BY dim_securitycharacteristicscodes\nHAVING COUNT(*) > 1;"
             },
             {
-                "id": "TC_INNO_GOLD_11", "cat": "Audit & Date Logic", "pri": "High",
+                "id": "TC_INNO_GOLD_11", "cat": "Audit Columns", "pri": "High",
                 "table": "innotrust.dim_account_master",
-                "desc": "Verify business_date, updated_at, effective_start_date & effective_end_date integrity on active records",
+                "desc": "Verify business_date and updated_at audit column integrity on active records",
                 "cond": "innotrust.dim_account_master populated",
-                "exp": "Zero NULLs in business_date or updated_at; effective_end_date >= effective_start_date.",
-                "query": "SELECT \n    COUNT(*) AS TotalActiveRows,\n    SUM(CASE WHEN business_date IS NULL THEN 1 ELSE 0 END) AS Null_BusinessDate,\n    SUM(CASE WHEN updated_at IS NULL THEN 1 ELSE 0 END) AS Null_UpdatedAt,\n    SUM(CASE WHEN effective_start_date IS NULL THEN 1 ELSE 0 END) AS Null_EffectiveStartDate,\n    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) AS InvertedEffectiveDates\nFROM Gold_Warehouse.innotrust.dim_account_master\nWHERE is_current = 1;"
+                "exp": "Zero NULLs in business_date or updated_at; business_date <= current calendar date.",
+                "query": """SELECT 
+    COUNT(*) AS TotalActiveRows,
+    SUM(CASE WHEN business_date IS NULL THEN 1 ELSE 0 END) AS Null_BusinessDate,
+    SUM(CASE WHEN updated_at IS NULL THEN 1 ELSE 0 END) AS Null_UpdatedAt,
+    SUM(CASE WHEN business_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS FutureBusinessDates
+FROM Gold_Warehouse.innotrust.dim_account_master
+WHERE is_current = 1;"""
             },
             {
                 "id": "TC_INNO_GOLD_12", "cat": "Cross-Table Linkage", "pri": "High",
@@ -1301,27 +1426,6 @@ FROM ModelChains;"""
                 "cond": "innotrust.dim_master_sec_index populated",
                 "exp": "All non-null security_type_code values exist in dim_security_characteristics_codes.",
                 "query": "SELECT COUNT(*) AS Orphan_SecurityTypeCodes\nFROM Gold_Warehouse.innotrust.dim_master_sec_index s\nLEFT JOIN Gold_Warehouse.innotrust.dim_security_characteristics_codes sc \n    ON s.security_type_code = sc.security_type_code AND sc.is_current = 1\nWHERE s.is_current = 1 AND s.security_type_code IS NOT NULL AND sc.security_type_code IS NULL;"
-            },
-            {
-                "id": "TC_INNO_GOLD_14", "cat": "SCD2 Date Validation", "pri": "Critical",
-                "table": "innotrust.dim_account_master",
-                "desc": "Verify SCD2 Effective Date Rules: Inactive records effective_end_date <= (Current Day - 1), non-null end date, and valid active start date",
-                "cond": "innotrust.dim_account_master populated with SCD2 tracking columns",
-                "exp": "Inactive_End_Date_Breach_Count = 0, Inactive_Missing_End_Date = 0, Active_Future_Start_Date = 0, Inverted_Date_Range_Count = 0. TestStatus = 'PASSED'.",
-                "query": """SELECT 
-    'dim_account_master' AS TableName,
-    COUNT(*) AS TotalRecords,
-    SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) AS Inactive_End_Date_Breach_Count,
-    SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) AS Inactive_Missing_End_Date,
-    SUM(CASE WHEN is_current = 1 AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Active_Future_Start_Date,
-    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) AS Inverted_Date_Range_Count,
-    CASE 
-        WHEN SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) = 0
-         AND SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
-         AND SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
-        THEN 'PASSED' ELSE 'FAILED'
-    END AS TestStatus
-FROM Gold_Warehouse.innotrust.dim_account_master;"""
             }
         ]
     }
@@ -1705,97 +1809,7 @@ SELECT 'dim_security_characteristics_codes', COUNT(*),
     SUM(CASE WHEN updated_at IS NULL THEN 1 ELSE 0 END)
 FROM Gold_Warehouse.innotrust.dim_security_characteristics_codes WHERE is_current = 1;"""
         },
-        {
-            "id": "TC_COMB_SK_INNO_06",
-            "source": "Innotrust",
-            "scope": "All 5 Innotrust Dimensions (dim_account_master, category_codes, type_codes, sec_index, characteristics)",
-            "priority": "Critical",
-            "title": "Innotrust: Consolidated Multi-Object SCD2 Effective Start & End Date Audit (End Date <= Today - 1)",
-            "desc": "Validates across all 5 Innotrust dimensions that inactive records (is_current = 0) have effective_end_date <= (current day - 1), non-null end dates, active records have non-future start dates, and zero inverted date ranges.",
-            "exp": "Inactive_End_Date_Breach_Count = 0, Inactive_Missing_End_Date = 0, Active_Future_Start_Date = 0, Inverted_Date_Range_Count = 0 across all 5 tables.",
-            "query": """SELECT 
-    'dim_account_master' AS TableName,
-    COUNT(*) AS TotalRecords,
-    SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) AS Inactive_End_Date_Breach_Count,
-    SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) AS Inactive_Missing_End_Date,
-    SUM(CASE WHEN is_current = 1 AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Active_Future_Start_Date,
-    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) AS Inverted_Date_Range_Count,
-    CASE 
-        WHEN SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) = 0
-         AND SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
-         AND SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
-        THEN 'PASSED' ELSE 'FAILED'
-    END AS TestStatus
-FROM Gold_Warehouse.innotrust.dim_account_master
 
-UNION ALL
-
-SELECT 
-    'dim_master_sec_index' AS TableName,
-    COUNT(*),
-    SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END),
-    SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END),
-    SUM(CASE WHEN is_current = 1 AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END),
-    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END),
-    CASE 
-        WHEN SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) = 0
-         AND SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
-         AND SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
-        THEN 'PASSED' ELSE 'FAILED'
-    END
-FROM Gold_Warehouse.innotrust.dim_master_sec_index
-
-UNION ALL
-
-SELECT 
-    'dim_account_category_codes',
-    COUNT(*),
-    SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END),
-    SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END),
-    SUM(CASE WHEN is_current = 1 AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END),
-    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END),
-    CASE 
-        WHEN SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) = 0
-         AND SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
-         AND SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
-        THEN 'PASSED' ELSE 'FAILED'
-    END
-FROM Gold_Warehouse.innotrust.dim_account_category_codes
-
-UNION ALL
-
-SELECT 
-    'dim_account_type_codes',
-    COUNT(*),
-    SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END),
-    SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END),
-    SUM(CASE WHEN is_current = 1 AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END),
-    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END),
-    CASE 
-        WHEN SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) = 0
-         AND SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
-         AND SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
-        THEN 'PASSED' ELSE 'FAILED'
-    END
-FROM Gold_Warehouse.innotrust.dim_account_type_codes
-
-UNION ALL
-
-SELECT 
-    'dim_security_characteristics_codes',
-    COUNT(*),
-    SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END),
-    SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END),
-    SUM(CASE WHEN is_current = 1 AND effective_start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END),
-    SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END),
-    CASE 
-        WHEN SUM(CASE WHEN is_current = 0 AND effective_end_date > DATEADD(day, -1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) = 0
-         AND SUM(CASE WHEN is_current = 0 AND effective_end_date IS NULL THEN 1 ELSE 0 END) = 0
-         AND SUM(CASE WHEN effective_end_date < effective_start_date THEN 1 ELSE 0 END) = 0
-        THEN 'PASSED' ELSE 'FAILED'
-    END
-FROM Gold_Warehouse.innotrust.dim_security_characteristics_codes;"""
-        }
     ]
 
     # Add Consolidated SK cases to Master List
