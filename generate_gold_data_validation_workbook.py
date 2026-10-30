@@ -1757,7 +1757,7 @@ WHERE ma.is_current = 'True';"""
             "exp": "PK_Active_Duplicates = 0, Duplicate_Primary_SK = 0, Orphan_Foreign_References = 0, Missing_BusinessDate = 0 across all 5 Innotrust tables.",
             "query": """SELECT 'dim_account_master' AS TableName, COUNT(*) AS TotalActiveRows,
     (SELECT COUNT(*) FROM (SELECT customer_account_number FROM Gold_Warehouse.innotrust.dim_account_master WHERE is_current = 1 GROUP BY customer_account_number HAVING COUNT(*) > 1) d) AS PK_Active_Duplicates,
-    (COUNT(*) - COUNT(DISTINCT dim_account_master_sk)) AS Duplicate_Primary_SK,
+    (COUNT(*) - COUNT(DISTINCT m.dim_account_master_sk)) AS Duplicate_Primary_SK,
     SUM(CASE WHEN (m.account_category_code IS NOT NULL AND cat.account_category_code IS NULL)
                OR (m.account_type_code IS NOT NULL AND typ.account_type_code IS NULL) THEN 1 ELSE 0 END) AS Orphan_Foreign_References,
     SUM(CASE WHEN m.business_date IS NULL THEN 1 ELSE 0 END) AS Missing_BusinessDate,
@@ -1791,7 +1791,7 @@ UNION ALL
 
 SELECT 'dim_master_sec_index', COUNT(*),
     (SELECT COUNT(*) FROM (SELECT isin FROM Gold_Warehouse.innotrust.dim_master_sec_index WHERE is_current = 1 GROUP BY isin HAVING COUNT(*) > 1) d),
-    (COUNT(*) - COUNT(DISTINCT dim_master_sec_index_sk)),
+    (COUNT(*) - COUNT(DISTINCT s.dim_master_sec_index_sk)),
     SUM(CASE WHEN s.security_type_code IS NOT NULL AND sc.security_type_code IS NULL THEN 1 ELSE 0 END),
     SUM(CASE WHEN s.business_date IS NULL THEN 1 ELSE 0 END),
     SUM(CASE WHEN s.updated_at IS NULL THEN 1 ELSE 0 END)
